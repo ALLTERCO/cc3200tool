@@ -67,7 +67,8 @@ of arguments. Some examples:
     # format the flash, upload a servciepack and two files
     cc3200tool -p /dev/ttyUSB2 --sop2 ~rts --reset dtr \
         format_flash --size=1M \
-        write_file --signature ../servicepack-ota/ota_1.0.1.6-2.6.0.5.ucf.signed.bin \
+        write_file --file-size=0x20000 \
+            --signature ../servicepack-ota/ota_1.0.1.6-2.6.0.5.ucf.signed.bin \
             ../servicepack-ota/ota_1.0.1.6-2.6.0.5.ucf.ucf /sys/servicepack.ucf \
         write_file ../application_bootloader/gcc/exe/application_bootloader.bin /sys/mcuimg.bin \
         write_file yourapp.bin /sys/mcuimg1.bin

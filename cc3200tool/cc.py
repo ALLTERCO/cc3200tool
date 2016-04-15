@@ -50,8 +50,8 @@ SLFS_BLOCK_SIZE = 4096
 SLFS_FILE_OPEN_FLAG_COMMIT = 0x1              # /* MIRROR - for fail safe */
 SLFS_FILE_OPEN_FLAG_SECURE = 0x2              # /* SECURE */
 SLFS_FILE_OPEN_FLAG_NO_SIGNATURE_TEST = 0x4   # /* Relevant to secure file only  */
-SLFS_FILE_OPEN_FLAG_STATIC = 0x8              # /*  Relevant to secure file only */
-SLFS_FILE_OPEN_FLAG_VENDOR = 0x10             # /*  Relevant to secure file only */
+SLFS_FILE_OPEN_FLAG_STATIC = 0x8              # /* Relevant to secure file only */
+SLFS_FILE_OPEN_FLAG_VENDOR = 0x10             # /* Relevant to secure file only */
 SLFS_FILE_PUBLIC_WRITE = 0x20                 # /* Relevant to secure file only, the file can be opened for write without Token */
 SLFS_FILE_PUBLIC_READ = 0x40                  # /* Relevant to secure file only, the file can be opened for read without Token  */
 
@@ -86,6 +86,10 @@ def pinarg(extra=None):
         return pincfg(invert, apin)
 
     return _parse
+
+
+def auto_int(x):
+    return int(x, 0)
 
 # TODO: replace argparse.FileType('rb') with manual file handling
 parser = argparse.ArgumentParser(description='Serial flash utility for CC3200')
@@ -122,6 +126,9 @@ parser_write_file.add_argument(
 parser_write_file.add_argument(
         "--signature", type=argparse.FileType('rb'),
         help="file which contains the 256 bytes of signature for secured files")
+parser_write_file.add_argument(
+        "--file-size", type=auto_int, default=0,
+        help="allows allocating more space than needed for this upload")
 
 parser_read_file = subparsers.add_parser(
         "read_file", help="read a file from the SL filesystem")
@@ -574,7 +581,7 @@ class CC3200Connection(object):
         if not s.is_ok:
             raise CC3200Error("Erasing file failed: 0x{:02x}}".format(s.value))
 
-    def write_file(self, local_file, cc_filename, sign_file=None):
+    def write_file(self, local_file, cc_filename, sign_file=None, size=0):
         # size must be known in advance, so read the whole thing
         data = local_file.read()
         file_len = len(data)
@@ -597,9 +604,10 @@ class CC3200Connection(object):
             log.info("File exists on target, erasing")
             self.erase_file(cc_filename)
 
-        log.info("Uploading file %s -> %s...", local_file.name, cc_filename)
-
-        self._open_file_for_write(cc_filename, file_len)
+        alloc_size = max(size, file_len)
+        log.info("Uploading file %s -> %s [%d]...",
+                 local_file.name, cc_filename, alloc_size)
+        self._open_file_for_write(cc_filename, alloc_size)
 
         pos = 0
         while pos < file_len:
@@ -694,7 +702,7 @@ def main():
 
         if command.cmd == 'write_file':
             cc.write_file(command.local_file, command.cc_filename,
-                          command.signature)
+                          command.signature, command.file_size)
 
         if command.cmd == "read_file":
             cc.read_file(command.cc_filename, command.local_file)
