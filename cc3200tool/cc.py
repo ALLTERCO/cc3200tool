@@ -46,6 +46,20 @@ SLFS_SIZE_MAP = {
 
 SLFS_BLOCK_SIZE = 4096
 
+# defines from cc3200-sdk/simplelink/include/fs.h
+SLFS_FILE_OPEN_FLAG_COMMIT = 0x1              # /* MIRROR - for fail safe */
+SLFS_FILE_OPEN_FLAG_SECURE = 0x2              # /* SECURE */
+SLFS_FILE_OPEN_FLAG_NO_SIGNATURE_TEST = 0x4   # /* Relevant to secure file only  */
+SLFS_FILE_OPEN_FLAG_STATIC = 0x8              # /*  Relevant to secure file only */
+SLFS_FILE_OPEN_FLAG_VENDOR = 0x10             # /*  Relevant to secure file only */
+SLFS_FILE_PUBLIC_WRITE = 0x20                 # /* Relevant to secure file only, the file can be opened for write without Token */
+SLFS_FILE_PUBLIC_READ = 0x40                  # /* Relevant to secure file only, the file can be opened for read without Token  */
+
+SLFS_MODE_OPEN_READ = 0
+SLFS_MODE_OPEN_WRITE = 1
+SLFS_MODE_OPEN_CREATE = 2
+SLFS_MODE_OPEN_WRITE_CREATE_IF_NOT_EXIST = 3
+
 
 def hexify(s):
     ret = []
@@ -104,6 +118,9 @@ parser_write_file.add_argument(
         help="file on the local file system")
 parser_write_file.add_argument(
         "cc_filename", help="file name to write on the target")
+parser_write_file.add_argument(
+        "--signature", type=argparse.FileType('rb'),
+        help="file which contains the 256 bytes of signature for secured files")
 
 parser_read_file = subparsers.add_parser(
         "read_file", help="read a file from the SL filesystem")
@@ -431,38 +448,44 @@ class CC3200Connection(object):
             raise CC3200Error()
         return CC3x00FileInfo.from_packet(finfo)
 
-    def _open_file_for_write(self, filename, file_len):
-        flags = 0x3000
+    def _open_file_for_write(self, filename, file_len, fs_flags=None):
         for bsize_idx, bsize in enumerate(FLASH_BLOCK_SIZES):
             if (bsize * 255) >= file_len:
-                flags |= (bsize_idx & 0x0f) << 8
                 blocks = int(math.ceil(float(file_len) / bsize))
-                flags |= blocks & 0xff
                 break
         else:
             raise CC3200Error("file is too big")
 
-        command = OPCODE_START_UPLOAD + struct.pack(">II", flags, 0) + \
+        fs_access = SLFS_MODE_OPEN_WRITE_CREATE_IF_NOT_EXIST
+        flags = (((fs_access & 0x0f) << 12) |
+                 ((bsize_idx & 0x0f) << 8) |
+                 (blocks & 0xff))
+
+        if fs_flags is not None:
+            flags |= (fs_flags << 16) & 0xff
+
+        return self._open_file(filename, flags)
+
+    def _open_file_for_read(self, filename):
+        return self._open_file(filename, 0)
+
+    def _open_file(self, filename, slfs_flags):
+        command = OPCODE_START_UPLOAD + struct.pack(">II", slfs_flags, 0) + \
             filename + '\x00\x00'
         self._send_packet(command)
 
         token = self.port.read(4)
         if not len(token) == 4:
-            raise CC3200Error()
+            raise CC3200Error("open")
 
-    def _open_file_for_read(self, filename):
-        command = OPCODE_START_UPLOAD + struct.pack(">II", 0, 0) \
-                + filename + '\x00\x00'
-        self._send_packet(command)
-
-        token = self.port.read(4)
-        if not len(token) == 4:
-            raise CC3200Error("bad token")
-
-    def _close_file(self):
+    def _close_file(self, signature=None):
+        if signature is None:
+            signature = '\x46' * 256
+        if len(signature) != 256:
+            raise CC3200Error("bad signature length")
         command = OPCODE_FINISH_UPLOAD
         command += '\x00' * 63
-        command += '\x46' * 256
+        command += signature
         command += '\x00'
         self._send_packet(command)
 
@@ -520,6 +543,8 @@ class CC3200Connection(object):
         if size not in SLFS_SIZE_MAP:
             raise CC3200Error("invalid SLFS size")
 
+        size = SLFS_SIZE_MAP[size]
+
         log.info("Formatting flash with size=%s", size)
         command = OPCODE_FORMAT_FLASH \
             + struct.pack(">IIIII", 2, size/4, 0, 0, 2)
@@ -545,7 +570,7 @@ class CC3200Connection(object):
         if not s.is_ok:
             raise CC3200Error("Erasing file failed: 0x{:02x}}".format(s.value))
 
-    def write_file(self, local_file, cc_filename):
+    def write_file(self, local_file, cc_filename, sign_file=None):
         # size must be known in advance, so read the whole thing
         data = local_file.read()
         file_len = len(data)
@@ -553,6 +578,15 @@ class CC3200Connection(object):
         if not file_len:
             log.warn("Won't upload empty file")
             return
+
+        sign_data = None
+        fs_flags = None
+        if sign_file:
+            sign_data = sign_file.read(256)
+            fs_flags = (
+                    SLFS_FILE_OPEN_FLAG_SECURE |
+                    SLFS_FILE_PUBLIC_WRITE |
+                    SLFS_FILE_PUBLIC_READ)
 
         finfo = self._get_file_info(cc_filename)
         if finfo.exists:
@@ -574,7 +608,7 @@ class CC3200Connection(object):
 
         sys.stderr.write("\n")
         log.debug("Closing file ...")
-        return self._close_file()
+        return self._close_file(sign_data)
 
     def read_file(self, cc_fname, local_file):
         finfo = self._get_file_info(cc_fname)
@@ -655,7 +689,8 @@ def main():
             cc.format_slfs(command.size)
 
         if command.cmd == 'write_file':
-            cc.write_file(command.local_file, command.cc_filename)
+            cc.write_file(command.local_file, command.cc_filename,
+                          command.signature)
 
         if command.cmd == "read_file":
             cc.read_file(command.cc_filename, command.local_file)

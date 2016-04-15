@@ -18,8 +18,10 @@ and feeds on specially-crafted zip archives.
 
 This tool is based on the work done by Cesanta but is written in Python and
 exposes a generic cli interface for uploading user files and application binaries
-on a CC3200-attached serial flash. It cannot, among other things, upload NWP
-binaries (`/sys/servicepack.ucf`). The tool  also implements the functionality
+on a CC3200-attached serial flash.
+
+`cc3200tool` can upload NWP/MAC/PHY firmwares (`/sys/servicepack.ucf`), but it seems
+this only works on a clean FS. The tool  also implements the functionality
 described in TI's Application Note [CC3100/CC3200 Embedded Programming](http://www.ti.com/tool/embedded-programming).
 
 ## Installation
@@ -55,10 +57,17 @@ of arguments. Some examples:
         write_file ./exe/myapp.bin /sys/mcuimg.bin
 
     # format and upload an application binary
-    # note that this tool cannot upload /sys/servicepack.ucf
     cc3200tool -p /dev/ttyUSB2 \
         format_flash --size 1M \
         write_file exe/program.bin /sys/mcuimg.bin
 
     # dump a file on stdout
     cc3200tool read_file /sys/mcuimg.bin -
+
+    # format the flash, upload a servciepack and two files
+    cc3200tool -p /dev/ttyUSB2 --sop2 ~rts --reset dtr \
+        format_flash --size=1M \
+        write_file --signature ../servicepack-ota/ota_1.0.1.6-2.6.0.5.ucf.signed.bin \
+            ../servicepack-ota/ota_1.0.1.6-2.6.0.5.ucf.ucf /sys/servicepack.ucf \
+        write_file ../application_bootloader/gcc/exe/application_bootloader.bin /sys/mcuimg.bin \
+        write_file yourapp.bin /sys/mcuimg1.bin
