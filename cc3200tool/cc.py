@@ -87,6 +87,7 @@ def pinarg(extra=None):
 
     return _parse
 
+# TODO: replace argparse.FileType('rb') with manual file handling
 parser = argparse.ArgumentParser(description='Serial flash utility for CC3200')
 
 parser.add_argument(
@@ -132,6 +133,9 @@ parser_read_file.add_argument(
 
 parser_write_flash = subparsers.add_parser(
         "write_flash", help="Write a Gang image on the flash")
+parser_write_flash.add_argument(
+        "image_file", type=argparse.FileType('rb'),
+        help="gang image file prepared with Uniflash")
 parser_write_flash.add_argument(
         "--no-erase", type=bool, default=False,
         help="do not perform an erase before write (for blank chips)")
@@ -664,7 +668,7 @@ def main():
             port_name, baudrate=CC3200_BAUD, parity=serial.PARITY_NONE,
             stopbits=serial.STOPBITS_ONE)
     except (Exception, ) as e:
-        log.warn("unable to open serial port %s: %s", args.port, e)
+        log.warn("unable to open serial port %s: %s", port_name, e)
         sys.exit(-2)
 
     cc = CC3200Connection(p, reset_method, sop2_method)
@@ -700,7 +704,7 @@ def main():
             cc.erase_file(command.filename)
 
         if command.cmd == "write_flash":
-            cc.write_flash(cmd.image, not cmd.no_erase)
+            cc.write_flash(command.image_file, not command.no_erase)
 
     log.info("All commands done, bye.")
 
