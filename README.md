@@ -26,20 +26,26 @@ described in TI's Application Note [CC3100/CC3200 Embedded Programming](http://w
 
 ## Installation
 
-With pip, system-wide as root:
+This runs on Python 2.7 with recent [pySerial](https://github.com/pyserial/pyserial).
 
-    # pip install cc3200tool
+To install, if you have pip and want system-wide:
 
- ... or in a virtualenv as yourself:
+    pip install git+git://github.com/ALLTERCO/cc3200tool.git
 
-    $ virtualenv env && . env/bin/activate
-    $ pip install cc3200tool
+or clone this repǫ
 
-It can also be installed form source:
+    git clone http://github.com/ALLTERCO/cc3200tool.git
+    cd cc3200tool
 
-    $ git clone <this repo>
-    $ virtualenv env && . env/bin/activate # or not, but would need root for
-    $ pip install -e .
+then it's just like any other python package:
+
+    python setup.py install # as root, system-wide
+
+    # or in a virtualenv with pip
+    virtualenv env && ./env/bin/activate
+    pip install -e .
+    # then get updates with
+    git pull
 
 ## Usage
 
