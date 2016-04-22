@@ -656,8 +656,36 @@ class CC3200Connection(object):
         self._raw_write(0, data[:8], storage_id=2)
 
 
+def split_argv(cmdline_args):
+    """Manually split sys.argv into subcommand sections
+
+    The first returned element should contain all global options along with
+    the first command. Subsequent elements will contain a command each, with
+    options applicable for the specific command. This is needed so we can
+    specify different --file-size for different write_file commands.
+    """
+    args = []
+    have_cmd = False
+    for x in cmdline_args:
+        if x in subparsers.choices:
+            if have_cmd:
+                yield args
+                args = []
+            have_cmd = True
+            args.append(x)
+        else:
+            args.append(x)
+
+    if args:
+        yield args
+
 def main():
-    args, argv = parser.parse_known_args()
+    commands = []
+    for cmdargs in split_argv(sys.argv[1:]):
+        commands.append(parser.parse_args(cmdargs))
+
+    args = commands[0]
+
     sop2_method = args.sop2
     reset_method = args.reset
     if sop2_method.pin == reset_method.pin and reset_method.pin != 'none':
@@ -665,11 +693,6 @@ def main():
         sys.exit(-3)
 
     port_name = args.port
-
-    commands = [args]
-    while argv:
-        args, argv = parser.parse_known_args(argv)
-        commands.append(args)
 
     try:
         p = serial.Serial(
