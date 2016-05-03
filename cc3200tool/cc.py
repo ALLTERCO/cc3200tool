@@ -152,13 +152,6 @@ def dll_data(fname):
     return get_data('cc3200tool', 'dll/{}'.format(fname))
 
 
-def set_serial_break(port, is_break):
-    if hasattr(port, 'setBreak'):
-        port.setBreak(is_break)
-    else:
-        port.break_condition = is_break
-
-
 class CC3200Error(Exception):
     pass
 
@@ -366,19 +359,14 @@ class CC3200Connection(object):
         log.debug("get last status got %s", hexify(status))
         return CC3x00Status(ord(status))
 
-    def _do_break(self, timeout=None):
-        try:
-            set_serial_break(self.port, True)
-            time.sleep(.1)
-            return self._read_ack(timeout)
-        finally:
-            set_serial_break(self.port, False)
+    def _do_break(self, timeout):
+        self.port.send_break(.2)
+        return self._read_ack(timeout)
 
-    def _try_breaking(self, tries=4, timeout=None):
+    def _try_breaking(self, tries=5, timeout=2):
         for _ in range(tries):
             if self._do_break(timeout):
                 break
-            time.sleep(.1)
         else:
             raise CC3200Error("Did not get ACK on break condition")
 
@@ -505,7 +493,7 @@ class CC3200Connection(object):
         self.port.flushInput()
         self._set_sop2(True)
         self._do_reset()
-        self._try_breaking(tries=5, timeout=1)
+        self._try_breaking(tries=5, timeout=2)
         log.info("Connected, reading version...")
         self.vinfo = self._get_version()
 
@@ -544,7 +532,8 @@ class CC3200Connection(object):
         command = OPCODE_SWITCH_2_APPS + struct.pack(">I", 26666667)
         self._send_packet(command)
         log.info("Resetting communications ...")
-        self._try_breaking(timeout=3)
+        time.sleep(1)
+        self._try_breaking()
         self.vinfo_apps = self._get_version()
 
     def format_slfs(self, size=None):
