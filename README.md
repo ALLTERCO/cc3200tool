@@ -2,6 +2,10 @@
 
 A small tool to write files in TI's CC3200 SimpleLink (TM) filesystem.
 
+Copyright (C) 2016 Allterco Robotics
+
+![](https://img.shields.io/badge/license-GPL_2-green.svg "License")
+
 ## Rationale
 
 The only other tool which can officially do this is Uniflash, but good luck
