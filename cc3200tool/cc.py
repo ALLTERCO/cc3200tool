@@ -692,6 +692,10 @@ def main():
     for cmdargs in split_argv(sys.argv[1:]):
         commands.append(parser.parse_args(cmdargs))
 
+    if len(commands) == 0:
+        parser.print_help()
+        sys.exit(-1)
+
     args = commands[0]
 
     sop2_method = args.sop2
