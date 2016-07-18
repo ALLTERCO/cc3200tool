@@ -506,6 +506,9 @@ class CC3200Connection(object):
         command += signature
         command += '\x00'
         self._send_packet(command)
+        s = self._get_last_status()
+        if not s.is_ok:
+            raise CC3200Error("closing file failed")
 
     def connect(self):
         log.info("Connecting to target...")
@@ -623,6 +626,9 @@ class CC3200Connection(object):
             command = OPCODE_FILE_CHUNK + struct.pack(">I", pos)
             command += chunk
             self._send_packet(command)
+            res = self._get_last_status()
+            if not res.is_ok:
+                raise CC3200Error("writing at pos {} failed".format(pos))
             pos += len(chunk)
             sys.stderr.write('.')
 
