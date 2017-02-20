@@ -475,14 +475,6 @@ class CC3200Connection(object):
 
         sinfo = self._get_storage_info()
 
-        # Whats the purpose of "bs", "start" and "count" here?!?
-        bs = sinfo.block_size
-        if bs > 0:
-            start = offset / bs
-            count = len(data) / bs
-            if count % bs:
-                count += 1
-
         chunk_size = 4080
         sent = 0
         while sent < len(data):
@@ -610,12 +602,8 @@ class CC3200Connection(object):
         size = SLFS_SIZE_MAP[size]
 
         log.info("Formatting flash with size=%s", size)
-        if PY3:
-            command = OPCODE_FORMAT_FLASH \
-                + struct.pack(">IIIII", 2, size//4, 0, 0, 2)
-        else:
-            command = OPCODE_FORMAT_FLASH \
-                + struct.pack(">IIIII", 2, size/4, 0, 0, 2)
+        command = OPCODE_FORMAT_FLASH \
+            + struct.pack(">IIIII", 2, size//4, 0, 0, 2)
 
         self._send_packet(command)
 
