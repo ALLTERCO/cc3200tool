@@ -284,6 +284,9 @@ class CC3200Connection(object):
         if timeout is None:
             yield self.port
             return
+        if timeout == self.port.timeout:
+            yield self.port
+            return
         orig_timeout, self.port.timeout = self.port.timeout, timeout
         yield self.port
         self.port.timeout = orig_timeout
@@ -616,9 +619,16 @@ class CC3200Connection(object):
             self.erase_file(cc_filename)
 
         alloc_size = max(size, file_len)
+
+        timeout = self.port.timeout
+        if (alloc_size > 200000):
+            timeout = max(timeout, 5 * ((alloc_size / 200000) + 1)) # empirical value is ~252925 bytes for 5 sec timeout
+
         log.info("Uploading file %s -> %s [%d]...",
-                 local_file.name, cc_filename, alloc_size)
-        self._open_file_for_write(cc_filename, alloc_size)
+                local_file.name, cc_filename, alloc_size)
+
+        with self._serial_timeout(timeout):
+            self._open_file_for_write(cc_filename, alloc_size)
 
         pos = 0
         while pos < file_len:
