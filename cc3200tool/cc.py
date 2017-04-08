@@ -623,9 +623,6 @@ class CC3200Connection(object):
         timeout = self.port.timeout
         if (alloc_size > 200000):
             timeout = max(timeout, 5 * ((alloc_size / 200000) + 1)) # empirical value is ~252925 bytes for 5 sec timeout
-            if timeout != self.port.timeout:
-                #log.info("File is large, increased timeout %d -> %d", self.port.timeout, timeout)
-				pass
 
         log.info("Uploading file %s -> %s [%d]...",
                 local_file.name, cc_filename, alloc_size)
