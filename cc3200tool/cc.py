@@ -319,7 +319,7 @@ class CC3200Connection(object):
         if self._reset.pin == 'rts':
             self.port.rts = in_reset
             time.sleep(.1)
-            self.port.dtr = not in_reset
+            self.port.rts = not in_reset
 
     def _read_ack(self, timeout=None):
         ack_bytes = []
