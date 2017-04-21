@@ -483,7 +483,7 @@ class CC3200Connection(object):
                  (blocks & 0xff))
 
         if fs_flags is not None:
-            flags |= (fs_flags << 16) & 0xff
+            flags |= (fs_flags & 0xff) << 16
 
         return self._open_file(filename, flags)
 
@@ -628,7 +628,7 @@ class CC3200Connection(object):
                 local_file.name, cc_filename, alloc_size)
 
         with self._serial_timeout(timeout):
-            self._open_file_for_write(cc_filename, alloc_size)
+            self._open_file_for_write(cc_filename, alloc_size, fs_flags)
 
         pos = 0
         while pos < file_len:
