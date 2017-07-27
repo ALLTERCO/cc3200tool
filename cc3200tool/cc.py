@@ -609,20 +609,23 @@ class CC3200Connection(object):
         if sign_file:
             sign_data = sign_file.read(256)
             fs_flags = (
+                    SLFS_FILE_OPEN_FLAG_COMMIT |
                     SLFS_FILE_OPEN_FLAG_SECURE |
-                    SLFS_FILE_PUBLIC_WRITE |
-                    SLFS_FILE_PUBLIC_READ)
+                    SLFS_FILE_PUBLIC_WRITE)
 
         finfo = self._get_file_info(cc_filename)
         if finfo.exists:
             log.info("File exists on target, erasing")
             self.erase_file(cc_filename)
 
-        alloc_size = max(size, file_len)
+        alloc_size_effective = alloc_size = max(size, file_len)
+
+        if (fs_flags and fs_flags & SLFS_FILE_OPEN_FLAG_COMMIT):
+            alloc_size_effective *= 2
 
         timeout = self.port.timeout
-        if (alloc_size > 200000):
-            timeout = max(timeout, 5 * ((alloc_size / 200000) + 1)) # empirical value is ~252925 bytes for 5 sec timeout
+        if (alloc_size_effective > 200000):
+            timeout = max(timeout, 5 * ((alloc_size_effective / 200000) + 1)) # empirical value is ~252925 bytes for 5 sec timeout
 
         log.info("Uploading file %s -> %s [%d]...",
                 local_file.name, cc_filename, alloc_size)
