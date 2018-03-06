@@ -12,4 +12,3 @@ setup(
     scripts=['scripts/cc3200tool'],
     install_requires=['pyserial'],
 )
-

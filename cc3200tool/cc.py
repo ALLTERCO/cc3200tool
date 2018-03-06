@@ -81,12 +81,10 @@ SLFS_MODE_OPEN_WRITE_CREATE_IF_NOT_EXIST = 3
 
 
 def hexify(s):
-    ret = []
-    for x in s:
-        ret.append(hex(ord(x)))
-    return " ".join(ret)
+    return " ".join([hex(ord(x) for x in s)])
 
-pincfg = namedtuple('pincfg', ['invert', 'pin'])
+
+Pincfg = namedtuple('Pincfg', ['invert', 'pin'])
 
 
 def pinarg(extra=None):
@@ -102,13 +100,14 @@ def pinarg(extra=None):
         if apin not in choices:
             raise argparse.ArgumentTypeError("{} not one of {}".format(
                     apin, choices))
-        return pincfg(invert, apin)
+        return Pincfg(invert, apin)
 
     return _parse
 
 
 def auto_int(x):
     return int(x, 0)
+
 
 # TODO: replace argparse.FileType('rb') with manual file handling
 parser = argparse.ArgumentParser(description='Serial flash utility for CC3200')
@@ -424,7 +423,7 @@ class CC3200Connection(object):
     def _erase_blocks(self, start, count, storage_id=0):
         command = OPCODE_RAW_STORAGE_ERASE + \
             struct.pack(">III", storage_id, start, count)
-        self._send_packet()
+        self._send_packet(command, timeout=100)
 
     def _send_chunk(self, offset, data, storage_id=0):
         command = OPCODE_RAW_STORAGE_WRITE + \
@@ -439,7 +438,6 @@ class CC3200Connection(object):
         sinfo = self._get_storage_info()
         bs = sinfo.block_size
         if bs > 0:
-            start = offset / bs
             count = len(data) / bs
             if count % bs:
                 count += 1
@@ -447,7 +445,7 @@ class CC3200Connection(object):
         chunk_size = 4080
         sent = 0
         while sent < len(data):
-            chunk = data[sent:sent+chunk_size]
+            chunk = data[sent:sent + chunk_size]
             self._send_chunk(offset + sent, chunk, storage_id)
             sent += len(chunk)
 
@@ -625,10 +623,10 @@ class CC3200Connection(object):
 
         timeout = self.port.timeout
         if (alloc_size_effective > 200000):
-            timeout = max(timeout, 5 * ((alloc_size_effective / 200000) + 1)) # empirical value is ~252925 bytes for 5 sec timeout
+            timeout = max(timeout, 5 * ((alloc_size_effective / 200000) + 1))  # empirical value is ~252925 bytes for 5 sec timeout
 
         log.info("Uploading file %s -> %s [%d]...",
-                local_file.name, cc_filename, alloc_size)
+                 local_file.name, cc_filename, alloc_size)
 
         with self._serial_timeout(timeout):
             self._open_file_for_write(cc_filename, alloc_size, fs_flags)
@@ -706,6 +704,7 @@ def split_argv(cmdline_args):
     if args:
         yield args
 
+
 def main():
     commands = []
     for cmdargs in split_argv(sys.argv[1:]):
@@ -769,6 +768,7 @@ def main():
             cc.write_flash(command.image_file, not command.no_erase)
 
     log.info("All commands done, bye.")
+
 
 if __name__ == '__main__':
     main()

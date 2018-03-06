@@ -25,7 +25,7 @@ exposes a generic cli interface for uploading user files and application binarie
 on a CC3200-attached serial flash.
 
 `cc3200tool` can upload NWP/MAC/PHY firmwares (`/sys/servicepack.ucf`), but it seems
-this only works on a clean FS. The tool  also implements the functionality
+this only works on a clean FS. The tool also implements the functionality
 described in TI's Application Note [CC3100/CC3200 Embedded Programming](http://www.ti.com/tool/embedded-programming).
 
 ## Installation
