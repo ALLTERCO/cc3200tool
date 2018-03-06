@@ -424,7 +424,7 @@ class CC3200Connection(object):
     def _erase_blocks(self, start, count, storage_id=0):
         command = OPCODE_RAW_STORAGE_ERASE + \
             struct.pack(">III", storage_id, start, count)
-        self._send_packet()
+        self._send_packet(command, timeout=2)
 
     def _send_chunk(self, offset, data, storage_id=0):
         command = OPCODE_RAW_STORAGE_WRITE + \
