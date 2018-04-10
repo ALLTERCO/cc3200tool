@@ -81,7 +81,7 @@ SLFS_MODE_OPEN_WRITE_CREATE_IF_NOT_EXIST = 3
 
 
 def hexify(s):
-    return " ".join([hex(ord(x) for x in s)])
+    return " ".join([hex(ord(x)) for x in s])
 
 
 Pincfg = namedtuple('Pincfg', ['invert', 'pin'])
