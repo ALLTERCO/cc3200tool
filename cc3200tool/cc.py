@@ -147,6 +147,9 @@ parser_write_file.add_argument(
 parser_write_file.add_argument(
         "--file-size", type=auto_int, default=0,
         help="allows allocating more space than needed for this upload")
+parser_write_file.add_argument(
+        "--commit-flag", action="store_true",
+        help="enables fail safe MIRROR feature")
 
 parser_read_file = subparsers.add_parser(
         "read_file", help="read a file from the SL filesystem")
@@ -593,7 +596,7 @@ class CC3200Connection(object):
         if not s.is_ok:
             raise CC3200Error("Erasing file failed: 0x{:02x}}".format(s.value))
 
-    def write_file(self, local_file, cc_filename, sign_file=None, size=0):
+    def write_file(self, local_file, cc_filename, sign_file=None, size=0, commit_flag=False):
         # size must be known in advance, so read the whole thing
         data = local_file.read()
         file_len = len(data)
@@ -604,6 +607,10 @@ class CC3200Connection(object):
 
         sign_data = None
         fs_flags = None
+
+        if commit_flag:
+            fs_flags = SLFS_FILE_OPEN_FLAG_COMMIT
+
         if sign_file:
             sign_data = sign_file.read(256)
             fs_flags = (
@@ -625,8 +632,8 @@ class CC3200Connection(object):
         if (alloc_size_effective > 200000):
             timeout = max(timeout, 5 * ((alloc_size_effective / 200000) + 1))  # empirical value is ~252925 bytes for 5 sec timeout
 
-        log.info("Uploading file %s -> %s [%d]...",
-                 local_file.name, cc_filename, alloc_size)
+        log.info("Uploading file %s -> %s [%d, disk=%d]...",
+                 local_file.name, cc_filename, alloc_size, alloc_size_effective)
 
         with self._serial_timeout(timeout):
             self._open_file_for_write(cc_filename, alloc_size, fs_flags)
@@ -755,7 +762,7 @@ def main():
 
         if command.cmd == 'write_file':
             cc.write_file(command.local_file, command.cc_filename,
-                          command.signature, command.file_size)
+                          command.signature, command.file_size, command.commit_flag)
 
         if command.cmd == "read_file":
             cc.read_file(command.cc_filename, command.local_file)
