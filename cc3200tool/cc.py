@@ -44,6 +44,7 @@ OPCODE_GET_STORAGE_LIST = "\x27"
 OPCODE_FORMAT_FLASH = "\x28"
 OPCODE_GET_FILE_INFO = "\x2A"
 OPCODE_READ_FILE_CHUNK = "\x2B"
+OPCODE_RAW_STORAGE_READ = "\x2C"
 OPCODE_RAW_STORAGE_WRITE = "\x2D"
 OPCODE_ERASE_FILE = "\x2E"
 OPCODE_GET_VERSION_INFO = "\x2F"
@@ -171,6 +172,18 @@ parser_write_flash.add_argument(
         "--no-erase", type=bool, default=False,
         help="do not perform an erase before write (for blank chips)")
 
+parser_read_flash = subparsers.add_parser(
+        "read_flash", help="Read SFFS contents into the file")
+parser_read_flash.add_argument(
+        "dump_file", type=argparse.FileType('w+'),
+        help="path to store the SFFS dump")
+parser_read_flash.add_argument(
+        "--offset", type=auto_int, default=0,
+        help="starting offset (default is 0)")
+parser_read_flash.add_argument(
+        "--size", type=auto_int, default=-1,
+        help="dump size (default is complete SFFS)")
+
 
 def dll_data(fname):
     return get_data('cc3200tool', os.path.join('dll', fname))
@@ -237,7 +250,7 @@ class CC3x00StorageInfo(object):
 
     @classmethod
     def from_packet(cls, data):
-        bsize, bcount = struct.unpack("<HH", data[:4])
+        bsize, bcount = struct.unpack(">HH", data[:4])
         return cls(bsize, bcount)
 
     def __repr__(self):
@@ -461,6 +474,46 @@ class CC3200Connection(object):
         with open(filename, 'r') as f:
             data = f.read()
             return self._raw_write(offset, data, storage_id)
+
+    def _read_chunk(self, offset, size, storage_id=STORAGE_ID_SRAM):
+        # log.info("Reading chunk at 0x%x size 0x%x..." % (offset, size))
+        command = OPCODE_RAW_STORAGE_READ + \
+            struct.pack(">III", storage_id, offset, size)
+        self._send_packet(command)
+        data = self._read_packet()
+        if len(data) != size:
+            raise CC3200Error("invalid received size: %d vs %d" % (len(data), size))
+        return data
+
+    def _raw_read(self, offset, size, storage_id=STORAGE_ID_SRAM, sinfo=None):
+        slist = self._get_storage_list()
+        if storage_id == STORAGE_ID_SFLASH and not slist.sflash:
+            raise CC3200Error("no serial flash?!")
+        if storage_id == STORAGE_ID_SRAM and not slist.sram:
+            raise CC3200Error("no sram?!")
+
+        if not sinfo:
+            sinfo = self._get_storage_info(storage_id)
+        storage_size = sinfo.block_count * sinfo.block_size
+
+        if offset > storage_size:
+            raise CC3200Error("offset %d is bigger than available mem %d" % (offset, storage_size))
+
+        if size < 1:
+            size = storage_size - offset
+            log.info("Setting raw read size to maximum: %d", size)
+        elif size + offset > storage_size:
+            raise CC3200Error("size %d + offset %d is bigger than available mem %d" % (size, offset, storage_size))
+
+        log.info("Reading raw storage #%d start 0x%x, size 0x%x..." % (storage_id, offset, size))
+
+        chunk_size = 4096  # XXX 4096 works faster, but 256 was sniffed from the uniflash
+        rx_data = ''
+        while size - len(rx_data) > 0:
+            rx_data += self._read_chunk(offset + len(rx_data), min(chunk_size, size - len(rx_data)), storage_id)
+            sys.stderr.write('.')
+        sys.stderr.write("\n")
+        return rx_data
 
     def _exec_from_ram(self):
         self._send_packet(OPCODE_EXEC_FROM_RAM)
@@ -692,6 +745,10 @@ class CC3200Connection(object):
         self._raw_write(8, data[8:], storage_id=STORAGE_ID_SFLASH)
         self._raw_write(0, data[:8], storage_id=STORAGE_ID_SFLASH)
 
+    def read_flash(self, image_file, offset, size):
+        data = self._raw_read(offset, size, storage_id=STORAGE_ID_SFLASH)
+        image_file.write(data)
+
 
 def split_argv(cmdline_args):
     """Manually split sys.argv into subcommand sections
@@ -778,6 +835,9 @@ def main():
 
         if command.cmd == "write_flash":
             cc.write_flash(command.image_file, not command.no_erase)
+
+        if command.cmd == "read_flash":
+            cc.read_flash(command.dump_file, command.offset, command.size)
 
     log.info("All commands done, bye.")
 
