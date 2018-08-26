@@ -52,6 +52,9 @@ OPCODE_GET_STORAGE_INFO = "\x31"
 OPCODE_EXEC_FROM_RAM = "\x32"
 OPCODE_SWITCH_2_APPS = "\x33"
 
+STORAGE_ID_SRAM = 0x0
+STORAGE_ID_SFLASH = 0x2
+
 FLASH_BLOCK_SIZES = [0x100, 0x400, 0x1000, 0x4000, 0x10000]
 
 SLFS_SIZE_MAP = {
@@ -411,7 +414,7 @@ class CC3200Connection(object):
                 raise CC3200Error("Did not receive storage list byte")
         return CC3x00StorageList(ord(slist_byte))
 
-    def _get_storage_info(self, storage_id=0):
+    def _get_storage_info(self, storage_id=STORAGE_ID_SRAM):
         log.info("Getting storage info...")
         self._send_packet(OPCODE_GET_STORAGE_INFO +
                           struct.pack(">I", storage_id))
@@ -419,26 +422,28 @@ class CC3200Connection(object):
         if len(sinfo) < 4:
             raise CC3200Error("getting storage info got {} bytes"
                               .format(len(sinfo)))
-        log.info("storage info bytes: %s", ", "
+        log.info("storage #%d info bytes: %s", storage_id, ", "
                  .join([hex(ord(x)) for x in sinfo]))
         return CC3x00StorageInfo.from_packet(sinfo)
 
-    def _erase_blocks(self, start, count, storage_id=0):
+    def _erase_blocks(self, start, count, storage_id=STORAGE_ID_SRAM):
         command = OPCODE_RAW_STORAGE_ERASE + \
             struct.pack(">III", storage_id, start, count)
         self._send_packet(command, timeout=100)
 
-    def _send_chunk(self, offset, data, storage_id=0):
+    def _send_chunk(self, offset, data, storage_id=STORAGE_ID_SRAM):
         command = OPCODE_RAW_STORAGE_WRITE + \
             struct.pack(">III", storage_id, offset, len(data))
         self._send_packet(command + data)
 
-    def _raw_write(self, offset, data, storage_id=0):
+    def _raw_write(self, offset, data, storage_id=STORAGE_ID_SRAM):
         slist = self._get_storage_list()
-        if not slist.sflash:
+        if storage_id == STORAGE_ID_SFLASH and not slist.sflash:
             raise CC3200Error("no serial flash?!")
+        if storage_id == STORAGE_ID_SRAM and not slist.sram:
+            raise CC3200Error("no sram?!")
 
-        sinfo = self._get_storage_info()
+        sinfo = self._get_storage_info(storage_id)
         bs = sinfo.block_size
         if bs > 0:
             count = len(data) / bs
@@ -452,7 +457,7 @@ class CC3200Connection(object):
             self._send_chunk(offset + sent, chunk, storage_id)
             sent += len(chunk)
 
-    def _raw_write_file(self, offset, filename, storage_id=0):
+    def _raw_write_file(self, offset, filename, storage_id=STORAGE_ID_SRAM):
         with open(filename, 'r') as f:
             data = f.read()
             return self._raw_write(offset, data, storage_id)
@@ -682,10 +687,10 @@ class CC3200Connection(object):
         data_len = len(data)
         if erase:
             count = int(math.ceil(data_len / float(SLFS_BLOCK_SIZE)))
-            self._erase_blocks(0, count, storage_id=2)
+            self._erase_blocks(0, count, storage_id=STORAGE_ID_SFLASH)
 
-        self._raw_write(8, data[8:], storage_id=2)
-        self._raw_write(0, data[:8], storage_id=2)
+        self._raw_write(8, data[8:], storage_id=STORAGE_ID_SFLASH)
+        self._raw_write(0, data[:8], storage_id=STORAGE_ID_SFLASH)
 
 
 def split_argv(cmdline_args):
