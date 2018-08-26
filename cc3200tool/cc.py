@@ -27,6 +27,7 @@ import logging
 from contextlib import contextmanager
 from pkgutil import get_data
 from collections import namedtuple
+import json
 
 import serial
 
@@ -185,6 +186,13 @@ parser_read_flash.add_argument(
         help="dump size (default is complete SFFS)")
 
 
+parser_list_filesystem = subparsers.add_parser(
+        "list_filesystem", help="List SFFS contents and statistics (blocks total/used, inter-file gaps, etc)")
+parser_list_filesystem.add_argument(
+        "--json-output", action="store_true",
+        help="output in JSON format to stdout")
+
+
 def dll_data(fname):
     return get_data('cc3200tool', os.path.join('dll', fname))
 
@@ -281,6 +289,156 @@ class CC3x00FileInfo(object):
         exists = data[0] == '\x01'
         size = struct.unpack(">I", data[4:8])[0]
         return cls(exists, size)
+
+
+class CC3x00SffsStatsFileEntry(object):
+    def __init__(self, index, start_block, size_blocks, mirrored, flags, fname):
+        self.index = index
+        self.start_block = start_block
+        self.size_blocks = size_blocks
+        self.mirrored = mirrored
+        self.flags = flags
+        self.fname = fname
+
+        self.total_blocks = self.size_blocks
+        if self.mirrored:
+            self.total_blocks = self.total_blocks * 2
+
+
+class CC3x00SffsHole(object):
+    def __init__(self, start_block, size_blocks):
+        self.start_block = start_block
+        self.size_blocks = size_blocks
+
+
+class CC3x00SffsStats(object):
+    SFFS_FAT_METADATA2_OFFSET = 0x774
+    SFFS_FAT_FILE_NAME_ARRAY_OFFSET = 0x974
+
+    def __init__(self, fat_commit_revision, fat_bytes, storage_info):
+        self.fat_commit_revision = fat_commit_revision
+
+        self.block_size = storage_info.block_size
+        self.block_count = storage_info.block_count
+
+        occupied_block_snippets = []
+
+        self.used_blocks = 5  # FAT table size, as per documentation
+        occupied_block_snippets.append((0, 5))
+
+        self.files = []
+
+        for i in range((0x400 - 4) / 4):
+            # scan the complete FAT table (as it appears to be)
+            meta = fat_bytes[(i + 1) * 4:(i + 2) * 4]
+
+            if meta == "\xff\xff\xff\xff" or meta == struct.pack("BBBB", 0xff, i, 0xff, 0x7f):
+                # empty entry in the middle of the FAT table
+                continue
+
+            index, size_blocks, start_block_lsb, flags_sb_msb = struct.unpack("BBBB", meta)
+            if index != i:
+                raise CC3200Error("incorrect FAT entry (index %d != %d)", index, i)
+
+            # It's not completely clear, what all of these flags do mean, and where does the boundary between 'start block MSB' and 'flags' exactly lie.
+            # According to observations:
+            # - 0x8 seems to be set to '1' for all the files except for /sys/mcuimg.bin (looks like this is the mark of the user's app image for the CC3200's ROM bootloader)
+            # - 0x4 seems to be a negated flag of the mirrored/commit option
+            # - 4 LSB bits should be exactly enough to address the SFFS max size of 16 MB using 4K blocks
+
+            flags = flags_sb_msb >> 4
+            start_block_msb = flags_sb_msb & 0xf
+
+            mirrored = (flags & 0x4) == 0
+            start_block = (start_block_msb << 8) + start_block_lsb
+
+            meta2 = fat_bytes[self.SFFS_FAT_METADATA2_OFFSET + i * 4: self.SFFS_FAT_METADATA2_OFFSET + (i + 1) * 4]
+            fname_offset, fname_len = struct.unpack("<HH", meta2)
+            fname = fat_bytes[self.SFFS_FAT_FILE_NAME_ARRAY_OFFSET + fname_offset:self.SFFS_FAT_FILE_NAME_ARRAY_OFFSET + fname_offset + fname_len]
+
+            entry = CC3x00SffsStatsFileEntry(i, start_block, size_blocks, mirrored, flags, fname)
+            self.files.append(entry)
+
+            occupied_block_snippets.append((start_block, entry.total_blocks))
+            self.used_blocks = self.used_blocks + entry.total_blocks
+
+        occupied_block_snippets.append((self.block_count, 0))  # in order to track the trailing "hole", like uniflash does
+
+        self.holes = []
+        occupied_block_snippets.sort(key=lambda e: e[0])
+        prev_end_block = 0
+        for snippet in occupied_block_snippets:
+            if snippet[0] < prev_end_block:
+                raise CC3200Error("overlapping entry at block %d (prev end was %d)", snippet[0], prev_end_block)
+            if snippet[0] > prev_end_block:
+                self.holes.append(CC3x00SffsHole(prev_end_block, snippet[0] - prev_end_block - 1))
+            prev_end_block = snippet[0] + snippet[1]
+
+
+class CustomJsonEncoder(json.JSONEncoder):
+    def default(self, o):
+        return o.__dict__
+
+
+class CC3x00SffsMetadata(object):
+    SFFS_HEADER_SIGNATURE = 0x534c
+
+    def __init__(self, fat_bytes, storage_info):
+        self.is_header_valid = False
+        self.storage_info = storage_info
+
+        if len(fat_bytes) != storage_info.block_size:
+            raise CC3200Error("incorrect FAT size")
+
+        # perform just a basic parsing for now, a caller will select a more relevant fat and then call get_sffs_stats() in order to initiate complete parsing
+
+        fat_commit_revision, header_sign = struct.unpack("<HH", fat_bytes[:4])
+
+        if fat_commit_revision == 0xffff or header_sign == 0xffff:
+            # empty FAT
+            return
+
+        if header_sign != self.SFFS_HEADER_SIGNATURE:
+            log.warning("broken FAT (invalid header signature: 0x%08x, 0x%08x)", fat_commit_revision, header_sign)
+            return
+
+        self.fat_bytes = fat_bytes
+        self.fat_commit_revision = fat_commit_revision
+        log.info("detected a valid FAT revision: %d", self.fat_commit_revision)
+        self.is_header_valid = True
+
+    def get_sffs_stats(self):
+        if not hasattr(self, 'sffs_stats'):
+            self.sffs_stats = CC3x00SffsStats(self.fat_commit_revision, self.fat_bytes, self.storage_info)
+
+        return self.sffs_stats
+
+    @staticmethod
+    def print_sffs_stats(stats):
+        log.info("selected FAT revision: %d", stats.fat_commit_revision)
+        log.info("")
+        log.info("Serial Flash block size:\t%d bytes", stats.block_size)
+        log.info("Serial Flash capacity:\t%d blocks", stats.block_count)
+        log.info("")
+        log.info("\tfile\tstart\tsize\tfail\tflags\ttotal size\tfilename")
+        log.info("\tindex\tblock\t[BLKs]\tsafe\t\t[BLKs]")
+        log.info("----------------------------------------------------------------------------")
+        log.info("\tN/A\t0\t5\tN/A\tN/A\t5\t\tFATFS")
+        for f in stats.files:
+            log.info("\t%d\t%d\t%d\t%s\t0x%x\t%d\t\t%s" % (f.index, f.start_block, f.size_blocks, f.mirrored and "yes" or "no", f.flags, f.total_blocks, f.fname))
+
+        log.info("")
+        log.info("   Flash usage")
+        log.info("-------------------------")
+        log.info("used space:\t%d blocks", stats.used_blocks)
+        log.info("free space:\t%d blocks", stats.block_count - stats.used_blocks)
+
+        for h in stats.holes:
+            log.info("memory hole:\t[%d-%d]", h.start_block, h.start_block + h.size_blocks)
+
+    @staticmethod
+    def print_sffs_stats_json(stats):
+        print json.dumps(stats, cls=CustomJsonEncoder)
 
 
 class CC3200Connection(object):
@@ -749,6 +907,47 @@ class CC3200Connection(object):
         data = self._raw_read(offset, size, storage_id=STORAGE_ID_SFLASH)
         image_file.write(data)
 
+    def list_filesystem(self, json_output=False):
+        sinfo = self._get_storage_info(storage_id=STORAGE_ID_SFLASH)
+
+        fat_table_bytes = self._raw_read(0, 2 * sinfo.block_size, storage_id=STORAGE_ID_SFLASH, sinfo=sinfo)
+
+        fat_table_bytes1 = fat_table_bytes[:sinfo.block_size]
+        fat_table_bytes2 = fat_table_bytes[sinfo.block_size:]
+
+        """
+        In SFFS there're 2 entries of FAT, none of which has a fixed primary or secondary role.
+        Instead, these entries are written interchangeably, with the newest one being marked with a larger 2-byte number,
+        referred in this source code as 'fat_commit_revision' (this is a made-up term).
+
+        The algorithm is described in detail here: http://processors.wiki.ti.com/index.php/CC3100_%26_CC3200_Serial_Flash_Guide#File_appending
+
+        It was also noticed that after the successful write to a newer FAT, the older one might got overwritten with 0xFF
+        by the CC3200's SFFS driver (effectively marking it as invalid), but not always.
+        """
+
+        fat_table1 = CC3x00SffsMetadata(fat_table_bytes1, sinfo)
+        fat_table2 = CC3x00SffsMetadata(fat_table_bytes2, sinfo)
+
+        fat_tables = []
+        if fat_table1.is_header_valid:
+            fat_tables.append(fat_table1)
+        if fat_table2.is_header_valid:
+            fat_tables.append(fat_table2)
+
+        if len(fat_tables) == 0:
+            raise CC3200Error("no valid fat tables found")
+
+        if len(fat_tables) > 1:
+            # find the latest
+            fat_tables.sort(reverse=True, key=lambda e: e.fat_commit_revision)
+
+        fat_table = fat_tables[0]
+        stats = fat_table.get_sffs_stats()
+        fat_table.print_sffs_stats(stats)
+        if json_output:
+            fat_table.print_sffs_stats_json(stats)
+
 
 def split_argv(cmdline_args):
     """Manually split sys.argv into subcommand sections
@@ -838,6 +1037,9 @@ def main():
 
         if command.cmd == "read_flash":
             cc.read_flash(command.dump_file, command.offset, command.size)
+
+        if command.cmd == "list_filesystem":
+            cc.list_filesystem(command.json_output)
 
     log.info("All commands done, bye.")
 
