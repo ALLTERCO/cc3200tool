@@ -187,7 +187,8 @@ parser_read_flash.add_argument(
 
 
 parser_list_filesystem = subparsers.add_parser(
-        "list_filesystem", help="List SFFS contents and statistics (blocks total/used, inter-file gaps, etc)")
+        "list_filesystem",
+        help="List SFFS contents and statistics (blocks total/used, inter-file gaps, etc)")
 parser_list_filesystem.add_argument(
         "--json-output", action="store_true",
         help="output in JSON format to stdout")
@@ -340,11 +341,20 @@ class CC3x00SffsStats(object):
             if index != i:
                 raise CC3200Error("incorrect FAT entry (index %d != %d)", index, i)
 
-            # It's not completely clear, what all of these flags do mean, and where does the boundary between 'start block MSB' and 'flags' exactly lie.
-            # According to observations:
-            # - 0x8 seems to be set to '1' for all the files except for /sys/mcuimg.bin (looks like this is the mark of the user's app image for the CC3200's ROM bootloader)
-            # - 0x4 seems to be a negated flag of the mirrored/commit option
-            # - 4 LSB bits should be exactly enough to address the SFFS max size of 16 MB using 4K blocks
+            """
+            It's not completely clear, what all of these flags do mean, and
+            where does the boundary between 'start block MSB' and 'flags'
+            exactly lie.
+
+            According to observations:
+            - 0x8 seems to be set to '1' for all the files except for
+                  /sys/mcuimg.bin (looks like this is the mark of the
+                  user's app image for the CC3200's ROM bootloader)
+            - 0x4 seems to be a negated flag of the mirrored/commit option
+
+            - 4 LSB bits should be exactly enough to address the SFFS
+                max size of 16 MB using 4K blocks
+            """
 
             flags = flags_sb_msb >> 4
             start_block_msb = flags_sb_msb & 0xf
@@ -352,26 +362,32 @@ class CC3x00SffsStats(object):
             mirrored = (flags & 0x4) == 0
             start_block = (start_block_msb << 8) + start_block_lsb
 
-            meta2 = fat_bytes[self.SFFS_FAT_METADATA2_OFFSET + i * 4: self.SFFS_FAT_METADATA2_OFFSET + (i + 1) * 4]
+            meta2 = fat_bytes[self.SFFS_FAT_METADATA2_OFFSET + i * 4:
+                              self.SFFS_FAT_METADATA2_OFFSET + (i + 1) * 4]
             fname_offset, fname_len = struct.unpack("<HH", meta2)
-            fname = fat_bytes[self.SFFS_FAT_FILE_NAME_ARRAY_OFFSET + fname_offset:self.SFFS_FAT_FILE_NAME_ARRAY_OFFSET + fname_offset + fname_len]
+            fo_abs = self.SFFS_FAT_FILE_NAME_ARRAY_OFFSET + fname_offset
+            fname = fat_bytes[fo_abs:fo_abs + fname_len]
 
-            entry = CC3x00SffsStatsFileEntry(i, start_block, size_blocks, mirrored, flags, fname)
+            entry = CC3x00SffsStatsFileEntry(i, start_block, size_blocks,
+                                             mirrored, flags, fname)
             self.files.append(entry)
 
             occupied_block_snippets.append((start_block, entry.total_blocks))
             self.used_blocks = self.used_blocks + entry.total_blocks
 
-        occupied_block_snippets.append((self.block_count, 0))  # in order to track the trailing "hole", like uniflash does
+        # in order to track the trailing "hole", like uniflash does
+        occupied_block_snippets.append((self.block_count, 0))
 
         self.holes = []
         occupied_block_snippets.sort(key=lambda e: e[0])
         prev_end_block = 0
         for snippet in occupied_block_snippets:
             if snippet[0] < prev_end_block:
-                raise CC3200Error("overlapping entry at block %d (prev end was %d)", snippet[0], prev_end_block)
+                raise CC3200Error("overlapping entry at block %d (prev end was %d)",
+                                  snippet[0], prev_end_block)
             if snippet[0] > prev_end_block:
-                self.holes.append(CC3x00SffsHole(prev_end_block, snippet[0] - prev_end_block - 1))
+                hole = CC3x00SffsHole(prev_end_block, snippet[0] - prev_end_block - 1)
+                self.holes.append(hole)
             prev_end_block = snippet[0] + snippet[1]
 
 
@@ -390,7 +406,11 @@ class CC3x00SffsMetadata(object):
         if len(fat_bytes) != storage_info.block_size:
             raise CC3200Error("incorrect FAT size")
 
-        # perform just a basic parsing for now, a caller will select a more relevant fat and then call get_sffs_stats() in order to initiate complete parsing
+        """
+        perform just a basic parsing for now, a caller will select a more
+        relevant fat and then call get_sffs_stats() in order to initiate
+        complete parsing
+        """
 
         fat_commit_revision, header_sign = struct.unpack("<HH", fat_bytes[:4])
 
@@ -399,7 +419,8 @@ class CC3x00SffsMetadata(object):
             return
 
         if header_sign != self.SFFS_HEADER_SIGNATURE:
-            log.warning("broken FAT (invalid header signature: 0x%08x, 0x%08x)", fat_commit_revision, header_sign)
+            log.warning("broken FAT (invalid header signature: 0x%08x, 0x%08x)",
+                        fat_commit_revision, header_sign)
             return
 
         self.fat_bytes = fat_bytes
@@ -409,7 +430,9 @@ class CC3x00SffsMetadata(object):
 
     def get_sffs_stats(self):
         if not hasattr(self, 'sffs_stats'):
-            self.sffs_stats = CC3x00SffsStats(self.fat_commit_revision, self.fat_bytes, self.storage_info)
+            self.sffs_stats = CC3x00SffsStats(self.fat_commit_revision,
+                                              self.fat_bytes,
+                                              self.storage_info)
 
         return self.sffs_stats
 
@@ -425,16 +448,21 @@ class CC3x00SffsMetadata(object):
         log.info("----------------------------------------------------------------------------")
         log.info("\tN/A\t0\t5\tN/A\tN/A\t5\t\tFATFS")
         for f in stats.files:
-            log.info("\t%d\t%d\t%d\t%s\t0x%x\t%d\t\t%s" % (f.index, f.start_block, f.size_blocks, f.mirrored and "yes" or "no", f.flags, f.total_blocks, f.fname))
+            log.info("\t%d\t%d\t%d\t%s\t0x%x\t%d\t\t%s" %
+                     (f.index, f.start_block, f.size_blocks,
+                      f.mirrored and "yes" or "no",
+                      f.flags, f.total_blocks, f.fname))
 
         log.info("")
         log.info("   Flash usage")
         log.info("-------------------------")
         log.info("used space:\t%d blocks", stats.used_blocks)
-        log.info("free space:\t%d blocks", stats.block_count - stats.used_blocks)
+        log.info("free space:\t%d blocks",
+                 stats.block_count - stats.used_blocks)
 
         for h in stats.holes:
-            log.info("memory hole:\t[%d-%d]", h.start_block, h.start_block + h.size_blocks)
+            log.info("memory hole:\t[%d-%d]", h.start_block,
+                     h.start_block + h.size_blocks)
 
     @staticmethod
     def print_sffs_stats_json(stats):
@@ -655,20 +683,26 @@ class CC3200Connection(object):
         storage_size = sinfo.block_count * sinfo.block_size
 
         if offset > storage_size:
-            raise CC3200Error("offset %d is bigger than available mem %d" % (offset, storage_size))
+            raise CC3200Error("offset %d is bigger than available mem %d" %
+                              (offset, storage_size))
 
         if size < 1:
             size = storage_size - offset
             log.info("Setting raw read size to maximum: %d", size)
         elif size + offset > storage_size:
-            raise CC3200Error("size %d + offset %d is bigger than available mem %d" % (size, offset, storage_size))
+            raise CC3200Error("size %d + offset %d is bigger than available mem %d" %
+                              (size, offset, storage_size))
 
-        log.info("Reading raw storage #%d start 0x%x, size 0x%x..." % (storage_id, offset, size))
+        log.info("Reading raw storage #%d start 0x%x, size 0x%x..." %
+                 (storage_id, offset, size))
 
-        chunk_size = 4096  # XXX 4096 works faster, but 256 was sniffed from the uniflash
+        # XXX 4096 works faster, but 256 was sniffed from the uniflash
+        chunk_size = 4096
         rx_data = ''
         while size - len(rx_data) > 0:
-            rx_data += self._read_chunk(offset + len(rx_data), min(chunk_size, size - len(rx_data)), storage_id)
+            rx_data += self._read_chunk(offset + len(rx_data),
+                                        min(chunk_size, size - len(rx_data)),
+                                        storage_id)
             sys.stderr.write('.')
         sys.stderr.write("\n")
         return rx_data
@@ -910,20 +944,25 @@ class CC3200Connection(object):
     def list_filesystem(self, json_output=False):
         sinfo = self._get_storage_info(storage_id=STORAGE_ID_SFLASH)
 
-        fat_table_bytes = self._raw_read(0, 2 * sinfo.block_size, storage_id=STORAGE_ID_SFLASH, sinfo=sinfo)
+        fat_table_bytes = self._raw_read(0, 2 * sinfo.block_size,
+                                         storage_id=STORAGE_ID_SFLASH,
+                                         sinfo=sinfo)
 
         fat_table_bytes1 = fat_table_bytes[:sinfo.block_size]
         fat_table_bytes2 = fat_table_bytes[sinfo.block_size:]
 
         """
-        In SFFS there're 2 entries of FAT, none of which has a fixed primary or secondary role.
-        Instead, these entries are written interchangeably, with the newest one being marked with a larger 2-byte number,
-        referred in this source code as 'fat_commit_revision' (this is a made-up term).
+        In SFFS there're 2 entries of FAT, none of which has a fixed primary
+        or secondary role. Instead, these entries are written interchangeably,
+        with the newest one being marked with a larger 2-byte number, referred
+        in this source code as 'fat_commit_revision' (this is a made-up term).
 
-        The algorithm is described in detail here: http://processors.wiki.ti.com/index.php/CC3100_%26_CC3200_Serial_Flash_Guide#File_appending
+        The algorithm is described in detail here:
+        http://processors.wiki.ti.com/index.php/CC3100_%26_CC3200_Serial_Flash_Guide#File_appending
 
-        It was also noticed that after the successful write to a newer FAT, the older one might got overwritten with 0xFF
-        by the CC3200's SFFS driver (effectively marking it as invalid), but not always.
+        It was also noticed that after the successful write to a newer FAT,
+        the older one might got overwritten with 0xFF by the CC3200's SFFS
+        driver (effectively marking it as invalid), but not always.
         """
 
         fat_table1 = CC3x00SffsMetadata(fat_table_bytes1, sinfo)
@@ -1023,7 +1062,8 @@ def main():
 
         if command.cmd == 'write_file':
             cc.write_file(command.local_file, command.cc_filename,
-                          command.signature, command.file_size, command.commit_flag)
+                          command.signature, command.file_size,
+                          command.commit_flag)
 
         if command.cmd == "read_file":
             cc.read_file(command.cc_filename, command.local_file)
