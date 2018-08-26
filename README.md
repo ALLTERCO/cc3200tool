@@ -82,3 +82,6 @@ of arguments. Some examples:
             ../servicepack-ota/ota_1.0.1.6-2.6.0.5.ucf.ucf /sys/servicepack.ucf \
         write_file ../application_bootloader/gcc/exe/application_bootloader.bin /sys/mcuimg.bin \
         write_file yourapp.bin /sys/mcuimg1.bin
+
+    # list file and filesystem statistics (occupied and free block sequences)
+    cc3200tool -p /dev/ttyUSB2 list_filesystem
