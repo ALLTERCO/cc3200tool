@@ -329,7 +329,11 @@ class CC3x00SffsStats(object):
 
         self.files = []
 
-        for i in range((0x400 - 4) / 4):
+        """
+        TI's doc: "Total number of files is limited to 128 files, including
+        system and configuration files"
+        """
+        for i in range(128):
             # scan the complete FAT table (as it appears to be)
             meta = fat_bytes[(i + 1) * 4:(i + 2) * 4]
 
