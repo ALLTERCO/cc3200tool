@@ -1060,6 +1060,8 @@ def main():
         cc.switch_to_nwp_bootloader()
         log.info("APPS version: %s", cc.vinfo_apps)
 
+    check_fat = False
+
     for command in commands:
         if command.cmd == "format_flash":
             cc.format_slfs(command.size)
@@ -1068,6 +1070,7 @@ def main():
             cc.write_file(command.local_file, command.cc_filename,
                           command.signature, command.file_size,
                           command.commit_flag)
+            check_fat = True
 
         if command.cmd == "read_file":
             cc.read_file(command.cc_filename, command.local_file)
@@ -1084,6 +1087,10 @@ def main():
 
         if command.cmd == "list_filesystem":
             cc.list_filesystem(command.json_output)
+
+    if check_fat:
+        fat_info = cc.get_fat_info()  # check FAT after each write_file operation
+        fat_info.print_sffs_info_short()
 
     log.info("All commands done, bye.")
 
