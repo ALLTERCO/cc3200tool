@@ -312,12 +312,45 @@ class CC3x00SffsHole(object):
         self.size_blocks = size_blocks
 
 
-class CC3x00SffsStats(object):
+class CC3x00SffsHeader(object):
+    SFFS_HEADER_SIGNATURE = 0x534c
+
+    def __init__(self, fat_index, fat_bytes, storage_info):
+        self.is_valid = False
+        self.storage_info = storage_info
+
+        if len(fat_bytes) != storage_info.block_size:
+            raise CC3200Error("incorrect FAT size")
+
+        """
+        perform just a basic parsing for now, a caller will select a more
+        relevant fat and then call get_sffs_stats() in order to initiate
+        complete parsing
+        """
+
+        fat_commit_revision, header_sign = struct.unpack("<HH", fat_bytes[:4])
+
+        if fat_commit_revision == 0xffff or header_sign == 0xffff:
+            # empty FAT
+            return
+
+        if header_sign != self.SFFS_HEADER_SIGNATURE:
+            log.warning("broken FAT: (invalid header signature: 0x%08x, 0x%08x)",
+                        fat_commit_revision, header_sign)
+            return
+
+        self.fat_bytes = fat_bytes
+        self.fat_commit_revision = fat_commit_revision
+        log.info("[%d] detected a valid FAT revision: %d", fat_index, self.fat_commit_revision)
+        self.is_valid = True
+
+
+class CC3x00SffsInfo(object):
     SFFS_FAT_METADATA2_OFFSET = 0x774
     SFFS_FAT_FILE_NAME_ARRAY_OFFSET = 0x974
 
-    def __init__(self, fat_commit_revision, fat_bytes, storage_info):
-        self.fat_commit_revision = fat_commit_revision
+    def __init__(self, fat_header, storage_info):
+        self.fat_commit_revision = fat_header.fat_commit_revision
 
         self.block_size = storage_info.block_size
         self.block_count = storage_info.block_count
@@ -335,7 +368,7 @@ class CC3x00SffsStats(object):
         """
         for i in range(128):
             # scan the complete FAT table (as it appears to be)
-            meta = fat_bytes[(i + 1) * 4:(i + 2) * 4]
+            meta = fat_header.fat_bytes[(i + 1) * 4:(i + 2) * 4]
 
             if meta == "\xff\xff\xff\xff" or meta == struct.pack("BBBB", 0xff, i, 0xff, 0x7f):
                 # empty entry in the middle of the FAT table
@@ -343,7 +376,7 @@ class CC3x00SffsStats(object):
 
             index, size_blocks, start_block_lsb, flags_sb_msb = struct.unpack("BBBB", meta)
             if index != i:
-                raise CC3200Error("incorrect FAT entry (index %d != %d)", index, i)
+                raise CC3200Error("incorrect FAT entry (index %d != %d)" % (index, i))
 
             """
             It's not completely clear, what all of these flags do mean, and
@@ -366,11 +399,11 @@ class CC3x00SffsStats(object):
             mirrored = (flags & 0x4) == 0
             start_block = (start_block_msb << 8) + start_block_lsb
 
-            meta2 = fat_bytes[self.SFFS_FAT_METADATA2_OFFSET + i * 4:
-                              self.SFFS_FAT_METADATA2_OFFSET + (i + 1) * 4]
+            meta2 = fat_header.fat_bytes[self.SFFS_FAT_METADATA2_OFFSET + i * 4:
+                                         self.SFFS_FAT_METADATA2_OFFSET + (i + 1) * 4]
             fname_offset, fname_len = struct.unpack("<HH", meta2)
             fo_abs = self.SFFS_FAT_FILE_NAME_ARRAY_OFFSET + fname_offset
-            fname = fat_bytes[fo_abs:fo_abs + fname_len]
+            fname = fat_header.fat_bytes[fo_abs:fo_abs + fname_len]
 
             entry = CC3x00SffsStatsFileEntry(i, start_block, size_blocks,
                                              mirrored, flags, fname)
@@ -387,71 +420,25 @@ class CC3x00SffsStats(object):
         prev_end_block = 0
         for snippet in occupied_block_snippets:
             if snippet[0] < prev_end_block:
-                raise CC3200Error("overlapping entry at block %d (prev end was %d)",
-                                  snippet[0], prev_end_block)
+                for f in self.files:
+                    log.info("[%d] block %d..%d fname=%s" %
+                             (f.index, f.start_block, f.start_block + f.total_blocks, f.fname))
+                raise CC3200Error("broken FAT: overlapping entry at block %d (prev end was %d)" %
+                                  (snippet[0], prev_end_block))
             if snippet[0] > prev_end_block:
                 hole = CC3x00SffsHole(prev_end_block, snippet[0] - prev_end_block - 1)
                 self.holes.append(hole)
             prev_end_block = snippet[0] + snippet[1]
 
-
-class CustomJsonEncoder(json.JSONEncoder):
-    def default(self, o):
-        return o.__dict__
-
-
-class CC3x00SffsMetadata(object):
-    SFFS_HEADER_SIGNATURE = 0x534c
-
-    def __init__(self, fat_bytes, storage_info):
-        self.is_header_valid = False
-        self.storage_info = storage_info
-
-        if len(fat_bytes) != storage_info.block_size:
-            raise CC3200Error("incorrect FAT size")
-
-        """
-        perform just a basic parsing for now, a caller will select a more
-        relevant fat and then call get_sffs_stats() in order to initiate
-        complete parsing
-        """
-
-        fat_commit_revision, header_sign = struct.unpack("<HH", fat_bytes[:4])
-
-        if fat_commit_revision == 0xffff or header_sign == 0xffff:
-            # empty FAT
-            return
-
-        if header_sign != self.SFFS_HEADER_SIGNATURE:
-            log.warning("broken FAT (invalid header signature: 0x%08x, 0x%08x)",
-                        fat_commit_revision, header_sign)
-            return
-
-        self.fat_bytes = fat_bytes
-        self.fat_commit_revision = fat_commit_revision
-        log.info("detected a valid FAT revision: %d", self.fat_commit_revision)
-        self.is_header_valid = True
-
-    def get_sffs_stats(self):
-        if not hasattr(self, 'sffs_stats'):
-            self.sffs_stats = CC3x00SffsStats(self.fat_commit_revision,
-                                              self.fat_bytes,
-                                              self.storage_info)
-
-        return self.sffs_stats
-
-    @staticmethod
-    def print_sffs_stats(stats):
-        log.info("selected FAT revision: %d", stats.fat_commit_revision)
-        log.info("")
-        log.info("Serial Flash block size:\t%d bytes", stats.block_size)
-        log.info("Serial Flash capacity:\t%d blocks", stats.block_count)
+    def print_sffs_info(self):
+        log.info("Serial Flash block size:\t%d bytes", self.block_size)
+        log.info("Serial Flash capacity:\t%d blocks", self.block_count)
         log.info("")
         log.info("\tfile\tstart\tsize\tfail\tflags\ttotal size\tfilename")
         log.info("\tindex\tblock\t[BLKs]\tsafe\t\t[BLKs]")
         log.info("----------------------------------------------------------------------------")
         log.info("\tN/A\t0\t5\tN/A\tN/A\t5\t\tFATFS")
-        for f in stats.files:
+        for f in self.files:
             log.info("\t%d\t%d\t%d\t%s\t0x%x\t%d\t\t%s" %
                      (f.index, f.start_block, f.size_blocks,
                       f.mirrored and "yes" or "no",
@@ -460,17 +447,26 @@ class CC3x00SffsMetadata(object):
         log.info("")
         log.info("   Flash usage")
         log.info("-------------------------")
-        log.info("used space:\t%d blocks", stats.used_blocks)
+        log.info("used space:\t%d blocks", self.used_blocks)
         log.info("free space:\t%d blocks",
-                 stats.block_count - stats.used_blocks)
+                 self.block_count - self.used_blocks)
 
-        for h in stats.holes:
+        for h in self.holes:
             log.info("memory hole:\t[%d-%d]", h.start_block,
                      h.start_block + h.size_blocks)
 
-    @staticmethod
-    def print_sffs_stats_json(stats):
-        print json.dumps(stats, cls=CustomJsonEncoder)
+    def print_sffs_info_short(self):
+        log.info("FAT r%d, num files: %d, used/free blocks: %d/%d",
+                 self.fat_commit_revision, len(self.files), self.used_blocks,
+                 self.block_count - self.used_blocks)
+
+    def print_sffs_info_json(self):
+        print json.dumps(self, cls=CustomJsonEncoder)
+
+
+class CustomJsonEncoder(json.JSONEncoder):
+    def default(self, o):
+        return o.__dict__
 
 
 class CC3200Connection(object):
@@ -945,7 +941,7 @@ class CC3200Connection(object):
         data = self._raw_read(offset, size, storage_id=STORAGE_ID_SFLASH)
         image_file.write(data)
 
-    def list_filesystem(self, json_output=False):
+    def get_fat_info(self):
         sinfo = self._get_storage_info(storage_id=STORAGE_ID_SFLASH)
 
         fat_table_bytes = self._raw_read(0, 2 * sinfo.block_size,
@@ -969,27 +965,31 @@ class CC3200Connection(object):
         driver (effectively marking it as invalid), but not always.
         """
 
-        fat_table1 = CC3x00SffsMetadata(fat_table_bytes1, sinfo)
-        fat_table2 = CC3x00SffsMetadata(fat_table_bytes2, sinfo)
+        fat_hdr1 = CC3x00SffsHeader(0, fat_table_bytes1, sinfo)
+        fat_hdr2 = CC3x00SffsHeader(1, fat_table_bytes2, sinfo)
 
-        fat_tables = []
-        if fat_table1.is_header_valid:
-            fat_tables.append(fat_table1)
-        if fat_table2.is_header_valid:
-            fat_tables.append(fat_table2)
+        fat_hdrs = []
+        if fat_hdr1.is_valid:
+            fat_hdrs.append(fat_hdr1)
+        if fat_hdr2.is_valid:
+            fat_hdrs.append(fat_hdr2)
 
-        if len(fat_tables) == 0:
+        if len(fat_hdrs) == 0:
             raise CC3200Error("no valid fat tables found")
 
-        if len(fat_tables) > 1:
+        if len(fat_hdrs) > 1:
             # find the latest
-            fat_tables.sort(reverse=True, key=lambda e: e.fat_commit_revision)
+            fat_hdrs.sort(reverse=True, key=lambda e: e.fat_commit_revision)
 
-        fat_table = fat_tables[0]
-        stats = fat_table.get_sffs_stats()
-        fat_table.print_sffs_stats(stats)
+        fat_hdr = fat_hdrs[0]
+        log.info("selected FAT revision: %d", fat_hdr.fat_commit_revision)
+        return CC3x00SffsInfo(fat_hdr, sinfo)
+
+    def list_filesystem(self, json_output=False):
+        fat_info = self.get_fat_info()
+        fat_info.print_sffs_info()
         if json_output:
-            fat_table.print_sffs_stats_json(stats)
+            fat_info.print_sffs_info_json()
 
 
 def split_argv(cmdline_args):
