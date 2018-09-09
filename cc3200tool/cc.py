@@ -36,6 +36,10 @@ logging.basicConfig(stream=sys.stderr, level=logging.INFO,
 
 CC3200_BAUD = 921600
 
+# erasing blocks is time consuming and depends on flash type
+# so separate timeout value is used
+ERASE_TIMEOUT = 120
+
 OPCODE_START_UPLOAD = "\x21"
 OPCODE_FINISH_UPLOAD = "\x22"
 OPCODE_GET_LAST_STATUS = "\x23"
@@ -121,6 +125,9 @@ parser.add_argument(
 parser.add_argument(
         "--sop2", type=pinarg(), default="none",
         help="dtr, rts or none, optinally prefixed by ~ to invert")
+parser.add_argument(
+        "--erase_timeout", type=auto_int, default=ERASE_TIMEOUT,
+        help="Specify block erase timeout for all operations which involve block erasing")
 
 subparsers = parser.add_subparsers(dest="cmd")
 
@@ -272,11 +279,12 @@ class CC3200Connection(object):
     TIMEOUT = 5
     DEFAULT_SLFS_SIZE = "1M"
 
-    def __init__(self, port, reset=None, sop2=None):
+    def __init__(self, port, reset=None, sop2=None, erase_timeout=ERASE_TIMEOUT):
         self.port = port
         port.timeout = self.TIMEOUT
         self._reset = reset
         self._sop2 = sop2
+        self._erase_timeout = erase_timeout
 
         self.vinfo = None
         self.vinfo_apps = None
@@ -426,7 +434,7 @@ class CC3200Connection(object):
     def _erase_blocks(self, start, count, storage_id=0):
         command = OPCODE_RAW_STORAGE_ERASE + \
             struct.pack(">III", storage_id, start, count)
-        self._send_packet(command, timeout=100)
+        self._send_packet(command, timeout=self._erase_timeout)
 
     def _send_chunk(self, offset, data, storage_id=0):
         command = OPCODE_RAW_STORAGE_WRITE + \
@@ -739,7 +747,7 @@ def main():
         log.warn("unable to open serial port %s: %s", port_name, e)
         sys.exit(-2)
 
-    cc = CC3200Connection(p, reset_method, sop2_method)
+    cc = CC3200Connection(p, reset_method, sop2_method, erase_timeout=args.erase_timeout)
     try:
         cc.connect()
         log.info("connected to target")
