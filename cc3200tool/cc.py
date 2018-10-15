@@ -133,6 +133,9 @@ parser.add_argument(
 parser.add_argument(
         "--erase_timeout", type=auto_int, default=ERASE_TIMEOUT,
         help="Specify block erase timeout for all operations which involve block erasing")
+parser.add_argument(
+        "--reboot-to-app", action="store_true",
+        help="When finished, reboot to the application")
 
 subparsers = parser.add_subparsers(dest="cmd")
 
@@ -513,12 +516,16 @@ class CC3200Connection(object):
         if self._sop2.pin == 'rts':
             self.port.rts = toset
 
-    def _do_reset(self):
+    def _do_reset(self, sop2):
+        self._set_sop2(sop2)
+
         if self._reset.pin == "none":
             return
 
         if self._reset.pin == "prompt":
-            print("Reset the device with SOP2 asserted and press Enter")
+            print("Reset the device with SOP2 {}asserted and press Enter".format(
+                '' if sop2 else 'de'
+            ))
             raw_input()
             return
 
@@ -775,11 +782,14 @@ class CC3200Connection(object):
     def connect(self):
         log.info("Connecting to target...")
         self.port.flushInput()
-        self._set_sop2(True)
-        self._do_reset()
+        self._do_reset(True)
         self._try_breaking(tries=5, timeout=2)
         log.info("Connected, reading version...")
         self.vinfo = self._get_version()
+
+    def reboot_to_app(self):
+        log.info("Rebooting to application")
+        self._do_reset(False)
 
     def switch_to_nwp_bootloader(self):
         log.info("Switching to NWP bootloader...")
@@ -1099,6 +1109,9 @@ def main():
     if check_fat:
         fat_info = cc.get_fat_info()  # check FAT after each write_file operation
         fat_info.print_sffs_info_short()
+
+    if args.reboot_to_app:
+        cc.reboot_to_app()
 
     log.info("All commands done, bye.")
 
