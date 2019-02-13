@@ -192,6 +192,9 @@ parser_list_filesystem = subparsers.add_parser(
 parser_list_filesystem.add_argument(
         "--json-output", action="store_true",
         help="output in JSON format to stdout")
+parser_list_filesystem.add_argument(
+        "--inactive", action="store_true",
+        help="output inactive FAT copy")
 
 
 def dll_data(fname):
@@ -941,7 +944,7 @@ class CC3200Connection(object):
         data = self._raw_read(offset, size, storage_id=STORAGE_ID_SFLASH)
         image_file.write(data)
 
-    def get_fat_info(self):
+    def get_fat_info(self, inactive=False):
         sinfo = self._get_storage_info(storage_id=STORAGE_ID_SFLASH)
 
         fat_table_bytes = self._raw_read(0, 2 * sinfo.block_size,
@@ -981,12 +984,18 @@ class CC3200Connection(object):
             # find the latest
             fat_hdrs.sort(reverse=True, key=lambda e: e.fat_commit_revision)
 
-        fat_hdr = fat_hdrs[0]
-        log.info("selected FAT revision: %d", fat_hdr.fat_commit_revision)
+        if inactive:
+            if len(fat_hdrs) > 1:
+                fat_hdr = fat_hdrs[1]
+            else:
+                raise CC3200Error("no valid inactive fat table found")
+        else:
+            fat_hdr = fat_hdrs[0]
+        log.info("selected FAT revision: %d (%s)", fat_hdr.fat_commit_revision, inactive and 'inactive' or 'active')
         return CC3x00SffsInfo(fat_hdr, sinfo)
 
-    def list_filesystem(self, json_output=False):
-        fat_info = self.get_fat_info()
+    def list_filesystem(self, json_output=False, inactive=False):
+        fat_info = self.get_fat_info(inactive=inactive)
         fat_info.print_sffs_info()
         if json_output:
             fat_info.print_sffs_info_json()
@@ -1086,7 +1095,8 @@ def main():
             cc.read_flash(command.dump_file, command.offset, command.size)
 
         if command.cmd == "list_filesystem":
-            cc.list_filesystem(command.json_output)
+            cc.list_filesystem(command.json_output, command.inactive)
+
 
     if check_fat:
         fat_info = cc.get_fat_info()  # check FAT after each write_file operation
