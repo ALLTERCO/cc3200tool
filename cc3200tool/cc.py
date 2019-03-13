@@ -394,7 +394,6 @@ class CC3200Connection(object):
         len_blob = struct.pack(">H", len(data) + 2)
         csum = struct.pack("B", checksum & 0xff)
         self.port.write(len_blob + csum + data)
-        # time.sleep(0.05)
         if not self._read_ack(timeout):
             raise CC3200Error(
                     "No ack for packet opcode=0x{:02x}".format(ord(data[0])))
@@ -767,13 +766,16 @@ class CC3200Connection(object):
         while sent < data_len:
             chunk = data[sent: sent + chunk_size]
             status = self._fs_programming(flags, chunk, key_data)
+            if status != sent + chunk_size:
+                break
             # assert (len(chunk) == chunk_size and status == sent) or status == 0
             log.info('FS programming chunk %d:%d, status %d', sent, len(chunk), status)
             sent += len(chunk)
         if data_len % chunk_size == 0:
             status = self._fs_programming(flags, '', '')
             log.info('FS programming status %d', status)
-            # assert status == 0
+        if status:
+            log.info('FS programming aborted, bad response')
 
 def split_argv(cmdline_args):
     """Manually split sys.argv into subcommand sections
@@ -876,6 +878,9 @@ def main():
             cc.write_flash(command.image_file, command.key)
 
     log.info("All commands done, bye.")
+
+    # Back to normal mode
+    p.dtr=1
 
 if __name__ == '__main__':
     main()
