@@ -766,10 +766,10 @@ class CC3200Connection(object):
         while sent < data_len:
             chunk = data[sent: sent + chunk_size]
             status = self._fs_programming(flags, chunk, key_data)
-            if status != sent + chunk_size:
-                break
             # assert (len(chunk) == chunk_size and status == sent) or status == 0
             log.info('FS programming chunk %d:%d, status %d', sent, len(chunk), status)
+            if (status != sent + chunk_size) and status != 0:
+                break
             sent += len(chunk)
         if data_len % chunk_size == 0:
             status = self._fs_programming(flags, '', '')
