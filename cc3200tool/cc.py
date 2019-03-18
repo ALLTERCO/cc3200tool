@@ -28,7 +28,7 @@ from contextlib import contextmanager
 from pkgutil import get_data
 from collections import namedtuple
 import json
-
+import platform
 import serial
 
 log = logging.getLogger()
@@ -612,13 +612,20 @@ class CC3200Connection(object):
         return CC3x00Status(ord(status))
 
     def _do_break(self, timeout):
-        self.port.dtr = 1
-        time.sleep(1.0)
-        self.port.dtr = 0
-        self.port.send_break()
-        self.port.send_break()
-        self.port.send_break()
-        return self._read_ack()
+        if platform.system() == 'Darwin': # mac os
+            time.sleep(1.0)
+            self.port.dtr = 0
+            self.port.send_break()
+            self.port.send_break()
+            self.port.send_break()
+            if self._read_ack(timeout):
+                return True
+            else:
+                self.port.dtr = 1
+                return False
+
+        self.port.send_break(.2)
+        return self._read_ack(timeout)
 
     def _try_breaking(self, tries=5, timeout=2):
         for _ in range(tries):
@@ -892,13 +899,15 @@ class CC3200Connection(object):
         command = OPCODE_SWITCH_2_APPS + struct.pack(">I", 26666667)
         self._send_packet(command)
         log.info("Resetting communications ...")
-        self.port.send_break()
-        self.port.send_break()
-        self.port.send_break()
-        if not self._read_ack():
-            raise CC3200Error("no ACK after Switch UART to APPS MCU command")
+        if platform.system() == 'Darwin': # mac os
+            self.port.send_break()
+            self.port.send_break()
+            self.port.send_break()
+            if not self._read_ack():
+                raise CC3200Error("no ACK after Switch UART to APPS MCU command")   
         else:
-            log.info('got ACK after Switch UART to APPS MCU command')
+            time.sleep(1)
+            self._try_breaking()
         for i in range(8):
             self.vinfo_apps = self._get_version()
             if self.vinfo.bootloader[1] >= 4:
@@ -1159,6 +1168,7 @@ def main():
         sys.exit(-3)
 
     port_name = args.port
+
     try:
         p = serial.Serial()
         p.baudrate=CC3200_BAUD
