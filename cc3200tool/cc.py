@@ -232,8 +232,23 @@ class CC3x00VersionInfo(object):
         self.chip_type = chip_type
 
     @property
-    def is_cc3200(self):
+    def is_cc32xx(self):
         return (self.chip_type[0] & 0x10) != 0
+    @property
+    def is_cc3220(self):
+        return (self.chip_type[0] == 0x10)
+    @property
+    def is_cc3220s(self):
+        return (self.chip_type[0] == 0x18)
+    @property
+    def is_cc3220sf(self):
+        return (self.chip_type[0] == 0x19)
+    @property
+    def chip_name(self):
+        if self.is_cc3220: return "CC3220"
+        if self.is_cc3220s: return "CC3220S"
+        if self.is_cc3220sf: return "CC3220SF"
+        return "CC3210"
 
     @classmethod
     def from_packet(cls, data):
@@ -855,7 +870,7 @@ class CC3200Connection(object):
     def switch_to_nwp_bootloader(self):
         log.info("Switching to NWP bootloader...")
         vinfo = self._get_version()
-        if not vinfo.is_cc3200:
+        if not vinfo.is_cc32xx:
             log.debug("This looks like the NWP already")
             return
 
@@ -1193,8 +1208,8 @@ def main():
 
     # TODO: sane error handling
 
-    if cc.vinfo.is_cc3200:
-        log.info("This is a CC3200 device")
+    if cc.vinfo.is_cc32xx:
+        log.info("This is a %s device", cc.vinfo.chip_name)
         cc.switch_to_nwp_bootloader()
         log.info("APPS version: %s", cc.vinfo_apps)
 
