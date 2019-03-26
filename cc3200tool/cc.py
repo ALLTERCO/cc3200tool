@@ -613,6 +613,8 @@ class CC3200Connection(object):
         len_blob = struct.pack(">H", len(data) + 2)
         csum = struct.pack("B", checksum & 0xff)
         self.port.write(len_blob + csum + data)
+        if platform.system() == 'Darwin': # mac os
+            time.sleep(0.001)
         if not self._read_ack(timeout):
             raise CC3200Error(
                     "No ack for packet opcode=0x{:02x}".format(ord(data[0])))
@@ -633,12 +635,16 @@ class CC3200Connection(object):
             self.port.send_break()
             self.port.send_break()
             self.port.send_break()
+            if self._read_ack(0.01):
+                return True
+            self.port.send_break()
             if self._read_ack(timeout):
                 return True
             else:
                 self.port.dtr = 1
                 return False
 
+        # For other os types
         self.port.send_break(.2)
         return self._read_ack(timeout)
 
