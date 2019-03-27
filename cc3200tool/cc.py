@@ -1076,15 +1076,18 @@ class CC3200Connection(object):
                 chunk = data[sent: sent + chunk_size]
                 status = self._fs_programming(flags, chunk, key_data)
                 # assert (len(chunk) == chunk_size and status == sent) or status == 0
-                log.info('FS programming chunk %d:%d, status %d', sent, len(chunk), status)
+                log.debug('FS programming chunk %d:%d, status %d', sent, len(chunk), status)
                 if (status != sent + chunk_size) and status != 0:
                     break
                 sent += len(chunk)
+                sys.stdout.write('\rFS programming progress:%d%% ' % (sent * 100 / data_len))
+                sys.stdout.flush()
             if data_len % chunk_size == 0:
                 status = self._fs_programming(flags, '', '')
                 log.info('FS programming status %d', status)
             if status:
                 log.info('FS programming aborted, bad response')
+            sys.stdout.write(os.linesep)   
 
     def read_flash(self, image_file, offset, size):
         data = self._raw_read(offset, size, storage_id=STORAGE_ID_SFLASH)
