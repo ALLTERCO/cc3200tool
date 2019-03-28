@@ -554,7 +554,11 @@ class CC3200Connection(object):
             ))
             raw_input()
             return
-
+        
+        # dtr doesn't work properly on mac os
+        if platform.system() == 'Darwin':
+            return
+        
         in_reset = True ^ self._reset.invert
         if self._reset.pin == 'dtr':
             self.port.dtr = in_reset
@@ -629,7 +633,8 @@ class CC3200Connection(object):
         return CC3x00Status(ord(status))
 
     def _do_break(self, timeout):
-        if platform.system() == 'Darwin': # mac os
+        # For mac os
+        if platform.system() == 'Darwin' and self._reset.pin == 'dtr': 
             time.sleep(1.0)
             self.port.dtr = 0
             self.port.send_break()
@@ -652,8 +657,8 @@ class CC3200Connection(object):
         for _ in range(tries):
             if self._do_break(timeout):
                 break
-            else:
-                raise CC3200Error("Did not get ACK on break condition")
+        else:
+            raise CC3200Error("Did not get ACK on break condition")
 
     def _get_version(self):
         self._send_packet(OPCODE_GET_VERSION_INFO)
