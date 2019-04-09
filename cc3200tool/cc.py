@@ -1085,7 +1085,7 @@ class CC3200Connection(object):
                 if (status != sent + chunk_size) and status != 0:
                     break
                 sent += len(chunk)
-                sys.stdout.write('\rFS programming progress:%d%% ' % (sent * 100 / data_len))
+                sys.stdout.write('\rFS programming:%d%% ' % (sent * 100 / data_len))
                 sys.stdout.flush()
             if data_len % chunk_size == 0:
                 status = self._fs_programming(flags, '', '')
