@@ -555,10 +555,6 @@ class CC3200Connection(object):
             raw_input()
             return
         
-        # dtr doesn't work properly on mac os
-        if platform.system() == 'Darwin':
-            return
-        
         in_reset = True ^ self._reset.invert
         if self._reset.pin == 'dtr':
             self.port.dtr = in_reset
@@ -869,7 +865,6 @@ class CC3200Connection(object):
     def connect(self):
         log.info("Connecting to target...")
         self.port.flushInput()
-        self._do_reset(True)
         self._try_breaking(tries=5, timeout=2)
         log.info("Connected, reading version...")
         self.vinfo = self._get_version()
