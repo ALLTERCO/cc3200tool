@@ -141,6 +141,9 @@ parser.add_argument(
 
 subparsers = parser.add_subparsers(dest="cmd")
 
+parser_find_device = subparsers.add_parser(
+        "find_device", help="Find device")
+
 parser_format_flash = subparsers.add_parser(
         "format_flash", help="Format the flash memory")
 parser_format_flash.add_argument(
@@ -1219,6 +1222,8 @@ def main():
 
     if cc.vinfo.is_cc32xx:
         log.info("This is a %s device", cc.vinfo.chip_name)
+        if "find_device" in sys.argv:
+            sys.exit(0)
         cc.switch_to_nwp_bootloader()
         log.info("APPS version: %s", cc.vinfo_apps)
 
