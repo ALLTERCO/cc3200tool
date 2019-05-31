@@ -632,25 +632,21 @@ class CC3200Connection(object):
         return CC3x00Status(ord(status))
 
     def _do_break(self, timeout):
-        # For mac os
-        if platform.system() == 'Darwin' and self._reset.pin == 'dtr': 
-            time.sleep(1.0)
-            self.port.dtr = 0
+        
+        time.sleep(1.0)
+        self.port.dtr = 0 # TODO: add function reset_pin(0)
+        if platform.system() == 'Darwin': # For mac os
             self.port.send_break()
             self.port.send_break()
             self.port.send_break()
-            if self._read_ack(0.01):
-                return True
-            self.port.send_break()
-            if self._read_ack(timeout):
-                return True
-            else:
-                self.port.dtr = 1
-                return False
-
-        # For other os types
-        self.port.send_break(.2)
-        return self._read_ack(timeout)
+        if self._read_ack(0.01):
+            return True
+        self.port.send_break(1.0)
+        if self._read_ack(timeout):
+            return True
+        else:
+            self.port.dtr = 1 # TODO: add function reset_pin(1)
+            return False
 
     def _try_breaking(self, tries=5, timeout=2):
         for _ in range(tries):
@@ -899,7 +895,8 @@ class CC3200Connection(object):
 
         if vinfo.bootloader[1] >= 4:
             log.info("Uploading rbtl3100s.dll...")
-            self._raw_write(0, dll_data('rbtl3100s.dll'))
+            sram_patches = os.path.join(CURRENT_PATH, 'dll/rbtl3100s.dll')
+            self._raw_write(0, load_file(sram_patches))
             self._exec_from_ram()
 
             if not self._read_ack():
