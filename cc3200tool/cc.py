@@ -639,7 +639,9 @@ class CC3200Connection(object):
             self.port.send_break()
             self.port.send_break()
             self.port.send_break()
-        if self._read_ack(0.01):
+        else:
+            self.port.send_break()
+        if self._read_ack(1):
             return True
         self.port.send_break(1.0)
         if self._read_ack(timeout):
@@ -928,7 +930,9 @@ class CC3200Connection(object):
                 raise CC3200Error("no ACK after Switch UART to APPS MCU command")   
         else:
             time.sleep(1)
-            self._try_breaking()
+            self.port.send_break(0.2)
+            if not self._read_ack():
+                raise CC3200Error("no ACK after Switch UART to APPS MCU command")  
         for i in range(8):
             self.vinfo_apps = self._get_version()
             if self.vinfo.bootloader[1] >= 4:
