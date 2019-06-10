@@ -641,7 +641,7 @@ class CC3200Connection(object):
             self.port.send_break()
         else:
             self.port.send_break()
-        if self._read_ack(1):
+        if self._read_ack(0.1):
             return True
         self.port.send_break(1.0)
         if self._read_ack(timeout):
