@@ -616,8 +616,7 @@ class CC3200Connection(object):
         len_blob = struct.pack(">H", len(data) + 2)
         csum = struct.pack("B", checksum & 0xff)
         self.port.write(len_blob + csum + data)
-        if platform.system() == 'Darwin': # mac os
-            time.sleep(0.001)
+        time.sleep(0.001)
         if not self._read_ack(timeout):
             raise CC3200Error(
                     "No ack for packet opcode=0x{:02x}".format(ord(data[0])))
@@ -635,12 +634,17 @@ class CC3200Connection(object):
         
         time.sleep(1.0)
         self.port.dtr = 0 # TODO: add function reset_pin(0)
+        log.info("break_on")
         if platform.system() == 'Darwin': # For mac os
-            self.port.send_break()
-            self.port.send_break()
-            self.port.send_break()
+            for i in range(3):
+                self.port.send_break()
+        elif platform.system() == 'Linux': # For mac os
+            for i in range(9):
+                self.port.send_break()
         else:
             self.port.send_break()
+        log.info("break_off")
+
         if self._read_ack(0.1):
             return True
         self.port.send_break(1.0)
@@ -923,11 +927,15 @@ class CC3200Connection(object):
         self._send_packet(command)
         log.info("Resetting communications ...")
         if platform.system() == 'Darwin': # mac os
-            self.port.send_break()
-            self.port.send_break()
-            self.port.send_break()
+            for i in range(3):
+                self.port.send_break()
             if not self._read_ack():
-                raise CC3200Error("no ACK after Switch UART to APPS MCU command")   
+                raise CC3200Error("no ACK after Switch UART to APPS MCU command")
+        elif platform.system() == 'Linux':
+            for i in range(10):
+                self.port.send_break()
+            if not self._read_ack():
+                raise CC3200Error("no ACK after Switch UART to APPS MCU command")
         else:
             time.sleep(1)
             self.port.send_break(0.2)
