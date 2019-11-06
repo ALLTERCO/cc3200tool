@@ -615,6 +615,8 @@ class CC3200Connection(object):
             checksum += ord(b)
         len_blob = struct.pack(">H", len(data) + 2)
         csum = struct.pack("B", checksum & 0xff)
+        if self.port.in_waiting or self.port.out_waiting:
+            log.info("There are bytes in waiting")
         self.port.write(len_blob + csum + data)
         time.sleep(0.001)
         if not self._read_ack(timeout):
@@ -754,10 +756,14 @@ class CC3200Connection(object):
 
         chunk_size = 4080
         sent = 0
-        while sent < len(data):
+        data_len = len(data)
+        while sent < data_len:
             chunk = data[sent:sent + chunk_size]
             self._send_chunk(offset + sent, chunk, storage_id)
             sent += len(chunk)
+            sys.stdout.write('\rProgress:%d%% ' % (sent * 100 / data_len))
+            sys.stdout.flush()
+        sys.stdout.write(os.linesep)
 
     def _raw_write_file(self, offset, filename, storage_id=STORAGE_ID_SRAM):
         with open(filename, 'r') as f:
@@ -1092,7 +1098,7 @@ class CC3200Connection(object):
                 if (status != sent + chunk_size) and status != 0:
                     break
                 sent += len(chunk)
-                sys.stdout.write('\rFS programming:%d%% ' % (sent * 100 / data_len))
+                sys.stdout.write('\rProgress:%d%% ' % (sent * 100 / data_len))
                 sys.stdout.flush()
             if data_len % chunk_size == 0:
                 status = self._fs_programming(flags, '', '')
