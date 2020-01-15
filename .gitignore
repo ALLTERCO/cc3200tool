@@ -1,3 +1,5 @@
 env/
 *.py[c|o]
 *.egg-info/
+cc3200tool-env/
+scripts/extract/
