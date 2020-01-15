@@ -85,3 +85,9 @@ of arguments. Some examples:
 
     # list file and filesystem statistics (occupied and free block sequences)
     cc3200tool -p /dev/ttyUSB2 list_filesystem
+
+    # Reads all files to a directory and creates subdirecty structure
+    cc3200tool -p /dev/ttyUSB2 read_all_files extract/
+
+    # Writes all files from a directory and its subdirectories
+    cc3200tool -p /dev/ttyUSB2 write_all_files extract/ --write
