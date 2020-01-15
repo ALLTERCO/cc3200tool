@@ -270,6 +270,16 @@ parser_read_all_files.add_argument(
         "local_dir", type=PathType(exists=True, type='dir'),
         help="local path to store the files in")
 
+parser_write_all_files = subparsers.add_parser(
+        "write_all_files",
+        help="Writes all files from a subfolder structure")
+parser_write_all_files.add_argument(
+        "local_dir", type=PathType(exists=True, type='dir'),
+        help="local path to read the files from")
+parser_write_all_files.add_argument(
+        "--write", action="store_true",
+        help="Writes the files instead of only showing them")
+
 def dll_data(fname):
     return get_data('cc3200tool', os.path.join('dll', fname))
 
@@ -1092,12 +1102,23 @@ class CC3200Connection(object):
             if not os.path.exists(os.path.dirname(target_file)):
                 os.makedirs(name=os.path.dirname(target_file))
 
-            #log.info("[%d] block %d..%d fname=%s" % (f.index, f.start_block, f.start_block + f.total_blocks, f.fname))
-
             try:
                 self.read_file(f.fname, open(target_file, 'wb', -1))
             except:
                 log.error("File %s could not be read" % (f.fname))
+
+    def write_all_files(self, local_dir, write=True):
+        for root, dirs, files in os.walk(local_dir):
+            for file in files:
+                filepath = os.path.join(root, file)
+                ccpath = filepath[len(local_dir):]
+                if not ccpath.startswith("/"):
+                    ccpath = "/" + ccpath
+
+                if write:
+                    self.write_file(open(filepath, 'rb', -1), ccpath)
+                else:
+                    log.info("Simulation: Would copy local file %s to cc3200 %s" % (filepath, ccpath))
 
 
 def split_argv(cmdline_args):
@@ -1198,6 +1219,10 @@ def main():
 
         if command.cmd == "read_all_files":
             cc.read_all_files(command.local_dir)
+
+        if command.cmd == "write_all_files":
+            cc.write_all_files(command.local_dir, command.write)
+            check_fat = True
 
 
     if check_fat:
