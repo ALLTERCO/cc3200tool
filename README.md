@@ -34,11 +34,11 @@ This runs on Python 2.7 with recent [pySerial](https://github.com/pyserial/pyser
 
 To install, if you have pip and want system-wide:
 
-    pip install git+git://github.com/ALLTERCO/cc3200tool.git
+    pip install git+git://github.com/toniebox-reverse-engineering/cc3200tool.git
 
 or clone this repǫ
 
-    git clone http://github.com/ALLTERCO/cc3200tool.git
+    git clone http://github.com/toniebox-reverse-engineering/cc3200tool.git
     cd cc3200tool
 
 then it's just like any other python package:
