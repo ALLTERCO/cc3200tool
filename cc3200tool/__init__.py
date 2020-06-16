@@ -1,1 +1,1 @@
-from cc import *
+from .cc import *
