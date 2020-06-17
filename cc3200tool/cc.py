@@ -41,22 +41,22 @@ CC3200_BAUD = 921600
 # so separate timeout value is used
 ERASE_TIMEOUT = 120
 
-OPCODE_START_UPLOAD = "\x21"
-OPCODE_FINISH_UPLOAD = "\x22"
-OPCODE_GET_LAST_STATUS = "\x23"
-OPCODE_FILE_CHUNK = "\x24"
-OPCODE_GET_STORAGE_LIST = "\x27"
-OPCODE_FORMAT_FLASH = "\x28"
-OPCODE_GET_FILE_INFO = "\x2A"
-OPCODE_READ_FILE_CHUNK = "\x2B"
-OPCODE_RAW_STORAGE_READ = "\x2C"
-OPCODE_RAW_STORAGE_WRITE = "\x2D"
-OPCODE_ERASE_FILE = "\x2E"
-OPCODE_GET_VERSION_INFO = "\x2F"
-OPCODE_RAW_STORAGE_ERASE = "\x30"
-OPCODE_GET_STORAGE_INFO = "\x31"
-OPCODE_EXEC_FROM_RAM = "\x32"
-OPCODE_SWITCH_2_APPS = "\x33"
+OPCODE_START_UPLOAD = b'\x21'
+OPCODE_FINISH_UPLOAD = b'\x22'
+OPCODE_GET_LAST_STATUS = b'\x23'
+OPCODE_FILE_CHUNK = b'\x24'
+OPCODE_GET_STORAGE_LIST = b'\x27'
+OPCODE_FORMAT_FLASH = b'\x28'
+OPCODE_GET_FILE_INFO = b'\x2A'
+OPCODE_READ_FILE_CHUNK = b'\x2B'
+OPCODE_RAW_STORAGE_READ = b'\x2C'
+OPCODE_RAW_STORAGE_WRITE = b'\x2D'
+OPCODE_ERASE_FILE = b'\x2E'
+OPCODE_GET_VERSION_INFO = b'\x2F'
+OPCODE_RAW_STORAGE_ERASE = b'\x30'
+OPCODE_GET_STORAGE_INFO = b'\x31'
+OPCODE_EXEC_FROM_RAM = b'\x32'
+OPCODE_SWITCH_2_APPS = b'\x33'
 
 STORAGE_ID_SRAM = 0x0
 STORAGE_ID_SFLASH = 0x2
@@ -90,7 +90,7 @@ SLFS_MODE_OPEN_WRITE_CREATE_IF_NOT_EXIST = 3
 
 
 def hexify(s):
-    return " ".join([hex(ord(x)) for x in s])
+    return " ".join([hex(x) for x in s])
 
 
 Pincfg = namedtuple('Pincfg', ['invert', 'pin'])
@@ -107,8 +107,7 @@ def pinarg(extra=None):
             invert = True
             apin = apin[1:]
         if apin not in choices:
-            raise argparse.ArgumentTypeError("{} not one of {}".format(
-                    apin, choices))
+            raise argparse.ArgumentTypeError(f"{apin} not one of {choices}")
         return Pincfg(invert, apin)
 
     return _parse
@@ -142,7 +141,7 @@ subparsers = parser.add_subparsers(dest="cmd")
 parser_format_flash = subparsers.add_parser(
         "format_flash", help="Format the flash memory")
 parser_format_flash.add_argument(
-        "-s", "--size", choices=SLFS_SIZE_MAP.keys(), default="1M")
+        "-s", "--size", choices=list(SLFS_SIZE_MAP.keys()), default="1M")
 
 parser_erase_file = subparsers.add_parser(
         "erase_file", help="Erase a file from the SL filesystem")
@@ -229,11 +228,11 @@ class CC3x00VersionInfo(object):
 
     @classmethod
     def from_packet(cls, data):
-        bootloader = tuple(map(ord, data[0:4]))
-        nwp = tuple(map(ord, data[4:8]))
-        mac = tuple(map(ord, data[8:12]))
-        phy = tuple(map(ord, data[12:16]))
-        chip_type = tuple(map(ord, data[16:20]))
+        bootloader = tuple(data[0:4])
+        nwp = tuple(data[4:8])
+        mac = tuple(data[8:12])
+        phy = tuple(data[12:16])
+        chip_type = tuple(data[16:20])
         return cls(bootloader, nwp, mac, phy, chip_type)
 
     def __repr__(self):
@@ -290,7 +289,7 @@ class CC3x00Status(object):
 
     @classmethod
     def from_packet(cls, packet):
-        return cls(ord(packet[3]))
+        return cls(packet[3])
 
 
 class CC3x00FileInfo(object):
@@ -300,7 +299,7 @@ class CC3x00FileInfo(object):
 
     @classmethod
     def from_packet(cls, data):
-        exists = data[0] == '\x01'
+        exists = data[0] == 0x01
         size = struct.unpack(">I", data[4:8])[0]
         return cls(exists, size)
 
@@ -383,7 +382,7 @@ class CC3x00SffsInfo(object):
             # scan the complete FAT table (as it appears to be)
             meta = fat_header.fat_bytes[(i + 1) * 4:(i + 2) * 4]
 
-            if meta == "\xff\xff\xff\xff" or meta == struct.pack("BBBB", 0xff, i, 0xff, 0x7f):
+            if meta == b"\xff\xff\xff\xff" or meta == struct.pack("BBBB", 0xff, i, 0xff, 0x7f):
                 # empty entry in the middle of the FAT table
                 continue
 
@@ -474,7 +473,7 @@ class CC3x00SffsInfo(object):
                  self.block_count - self.used_blocks)
 
     def print_sffs_info_json(self):
-        print json.dumps(self, cls=CustomJsonEncoder)
+        print(json.dumps(self, cls=CustomJsonEncoder))
 
 
 class CustomJsonEncoder(json.JSONEncoder):
@@ -529,7 +528,7 @@ class CC3200Connection(object):
             print("Reset the device with SOP2 {}asserted and press Enter".format(
                 '' if sop2 else 'de'
             ))
-            raw_input()
+            input()
             return
 
         in_reset = True ^ self._reset.invert
@@ -554,7 +553,7 @@ class CC3200Connection(object):
                 ack_bytes.append(b)
                 if len(ack_bytes) > 2:
                     ack_bytes.pop(0)
-                if ack_bytes == ['\x00', '\xCC']:
+                if ack_bytes == [b'\x00', b'\xCC']:
                     return True
 
     def _read_packet(self, timeout=None):
@@ -572,11 +571,9 @@ class CC3200Connection(object):
         if (len(data) != data_len):
             raise CC3200Error("did not get entire response")
 
-        ccsum = 0
-        for x in data:
-            ccsum += ord(x)
+        ccsum = sum(data)
         ccsum = ccsum & 0xff
-        if ccsum != ord(csum_byte):
+        if ccsum != csum_byte:
             raise CC3200Error("rx csum failed")
 
         self._send_ack()
@@ -584,24 +581,22 @@ class CC3200Connection(object):
 
     def _send_packet(self, data, timeout=None):
         assert len(data)
-        checksum = 0
-        for b in data:
-            checksum += ord(b)
+        checksum = sum(data)
         len_blob = struct.pack(">H", len(data) + 2)
         csum = struct.pack("B", checksum & 0xff)
         self.port.write(len_blob + csum + data)
         if not self._read_ack(timeout):
             raise CC3200Error(
-                    "No ack for packet opcode=0x{:02x}".format(ord(data[0])))
+                    f"No ack for packet opcode=0x{data[0]:02x}")
 
     def _send_ack(self):
-        self.port.write('\x00\xCC')
+        self.port.write(b'\x00\xCC')
 
     def _get_last_status(self):
         self._send_packet(OPCODE_GET_LAST_STATUS)
         status = self._read_packet()
         log.debug("get last status got %s", hexify(status))
-        return CC3x00Status(ord(status))
+        return CC3x00Status(status[0])
 
     def _do_break(self, timeout):
         self.port.send_break(.2)
@@ -618,8 +613,7 @@ class CC3200Connection(object):
         self._send_packet(OPCODE_GET_VERSION_INFO)
         version_data = self._read_packet()
         if len(version_data) != 28:
-            raise CC3200Error("Version info should be 28 bytes, got {}"
-                              .format(len(version_data)))
+            raise CC3200Error(f"Version info should be 28 bytes, got {len(version_data)}")
         return CC3x00VersionInfo.from_packet(version_data)
 
     def _get_storage_list(self):
@@ -629,7 +623,7 @@ class CC3200Connection(object):
             slist_byte = self.port.read(1)
             if len(slist_byte) != 1:
                 raise CC3200Error("Did not receive storage list byte")
-        return CC3x00StorageList(ord(slist_byte))
+        return CC3x00StorageList(slist_byte[0])
 
     def _get_storage_info(self, storage_id=STORAGE_ID_SRAM):
         log.info("Getting storage info...")
@@ -637,10 +631,9 @@ class CC3200Connection(object):
                           struct.pack(">I", storage_id))
         sinfo = self._read_packet()
         if len(sinfo) < 4:
-            raise CC3200Error("getting storage info got {} bytes"
-                              .format(len(sinfo)))
+            raise CC3200Error(f"getting storage info got {len(sinfo)} bytes")
         log.info("storage #%d info bytes: %s", storage_id, ", "
-                 .join([hex(ord(x)) for x in sinfo]))
+                 .join([hex(x) for x in sinfo]))
         return CC3x00StorageInfo.from_packet(sinfo)
 
     def _erase_blocks(self, start, count, storage_id=STORAGE_ID_SRAM):
@@ -659,13 +652,6 @@ class CC3200Connection(object):
             raise CC3200Error("no serial flash?!")
         if storage_id == STORAGE_ID_SRAM and not slist.sram:
             raise CC3200Error("no sram?!")
-
-        sinfo = self._get_storage_info(storage_id)
-        bs = sinfo.block_size
-        if bs > 0:
-            count = len(data) / bs
-            if count % bs:
-                count += 1
 
         chunk_size = 4080
         sent = 0
@@ -716,12 +702,13 @@ class CC3200Connection(object):
 
         # XXX 4096 works faster, but 256 was sniffed from the uniflash
         chunk_size = 4096
-        rx_data = ''
+        rx_data = b''
         while size - len(rx_data) > 0:
             rx_data += self._read_chunk(offset + len(rx_data),
                                         min(chunk_size, size - len(rx_data)),
                                         storage_id)
             sys.stderr.write('.')
+            sys.stderr.flush()
         sys.stderr.write("\n")
         return rx_data
 
@@ -731,7 +718,7 @@ class CC3200Connection(object):
     def _get_file_info(self, filename):
         command = OPCODE_GET_FILE_INFO \
             + struct.pack(">I", len(filename)) \
-            + filename
+            + filename.encode()
         self._send_packet(command)
         finfo = self._read_packet()
         if len(finfo) < 5:
@@ -761,7 +748,7 @@ class CC3200Connection(object):
 
     def _open_file(self, filename, slfs_flags):
         command = OPCODE_START_UPLOAD + struct.pack(">II", slfs_flags, 0) + \
-            filename + '\x00\x00'
+            filename.encode() + b'\x00\x00'
         self._send_packet(command)
 
         token = self.port.read(4)
@@ -770,13 +757,13 @@ class CC3200Connection(object):
 
     def _close_file(self, signature=None):
         if signature is None:
-            signature = '\x46' * 256
+            signature = b'\x46' * 256
         if len(signature) != 256:
             raise CC3200Error("bad signature length")
         command = OPCODE_FINISH_UPLOAD
-        command += '\x00' * 63
+        command += b'\x00' * 63
         command += signature
-        command += '\x00'
+        command += b'\x00'
         self._send_packet(command)
         s = self._get_last_status()
         if not s.is_ok:
@@ -844,7 +831,7 @@ class CC3200Connection(object):
 
         log.info("Formatting flash with size=%s", size)
         command = OPCODE_FORMAT_FLASH \
-            + struct.pack(">IIIII", 2, size/4, 0, 0, 2)
+            + struct.pack(">IIIII", 2, size//4, 0, 0, 2)
 
         self._send_packet(command)
 
@@ -861,11 +848,11 @@ class CC3200Connection(object):
 
         log.info("Erasing file %s...", filename)
         command = OPCODE_ERASE_FILE + struct.pack(">I", 0) + \
-            filename + '\x00'
+            filename.encode() + b'\x00'
         self._send_packet(command)
         s = self._get_last_status()
         if not s.is_ok:
-            raise CC3200Error("Erasing file failed: 0x{:02x}}".format(s.value))
+            raise CC3200Error(f"Erasing file failed: 0x{s.value:02x}")
 
     def write_file(self, local_file, cc_filename, sign_file=None, size=0, commit_flag=False):
         # size must be known in advance, so read the whole thing
@@ -917,9 +904,10 @@ class CC3200Connection(object):
             self._send_packet(command)
             res = self._get_last_status()
             if not res.is_ok:
-                raise CC3200Error("writing at pos {} failed".format(pos))
+                raise CC3200Error(f"writing at pos {pos} failed")
             pos += len(chunk)
             sys.stderr.write('.')
+            sys.stderr.flush()
 
         sys.stderr.write("\n")
         log.debug("Closing file ...")
@@ -928,7 +916,7 @@ class CC3200Connection(object):
     def read_file(self, cc_fname, local_file):
         finfo = self._get_file_info(cc_fname)
         if not finfo.exists:
-            raise CC3200Error("{} does not exist on target".format(cc_fname))
+            raise CC3200Error(f"{cc_fname} does not exist on target")
 
         log.info("Reading file %s -> %s", cc_fname, local_file.name)
 
@@ -1075,7 +1063,7 @@ def main():
         cc.connect()
         log.info("connected to target")
     except (Exception, ) as e:
-        log.error("Could not connect to target: {}".format(e))
+        log.error(f"Could not connect to target: {e}")
         sys.exit(-3)
 
     log.info("Version: %s", cc.vinfo)

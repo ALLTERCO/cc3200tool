@@ -30,15 +30,15 @@ described in TI's Application Note [CC3100/CC3200 Embedded Programming](http://w
 
 ## Installation
 
-This runs on Python 2.7 with recent [pySerial](https://github.com/pyserial/pyserial).
+This runs on Python >=3.6 with recent [pySerial](https://github.com/pyserial/pyserial).
 
 To install, if you have pip and want system-wide:
 
-    pip install git+git://github.com/ALLTERCO/cc3200tool.git
+    pip install git+git://github.com/mon/cc3200tool.git
 
 or clone this repǫ
 
-    git clone http://github.com/ALLTERCO/cc3200tool.git
+    git clone http://github.com/mon/cc3200tool.git
     cd cc3200tool
 
 then it's just like any other python package:
