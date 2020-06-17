@@ -1,7 +1,7 @@
 #!python
 #
 # cc3200tool - work with TI's CC3200 SimpleLink (TM) filesystem.
-# Copyright (C) 2016 Allterco Robotics
+# Copyright (C) 2016-2020 Allterco Robotics
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
