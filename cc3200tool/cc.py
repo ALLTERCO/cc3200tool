@@ -225,6 +225,17 @@ def dll_data(fname):
 class CC3200Error(Exception):
     pass
 
+#   Chip ID   Part Number
+# 0x31000000    CC3120
+# 0x31100000    CC3135
+# 0x31000011    CC3220R
+# 0x31000018    CC3220S
+# 0x31100018    CC3235S
+# 0x31000019    CC3220SF
+# 0x31100019    CC3235SF
+# 0x31120000    CC3130
+# 0x31120018    CC3230S
+# 0x31120019    CC3230SF
 
 class CC3x00VersionInfo(object):
     def __init__(self, bootloader, nwp, mac, phy, chip_type):
@@ -239,18 +250,22 @@ class CC3x00VersionInfo(object):
         return (self.chip_type[0] & 0x10) != 0
     @property
     def is_cc3220(self):
-        return (self.chip_type[0] == 0x10)
+        return (self.chip_type[0] == 0x10 and self.chip_type[1] == 0)
     @property
     def is_cc3220s(self):
-        return (self.chip_type[0] == 0x18)
+        return (self.chip_type[0] == 0x18 and self.chip_type[1] != 0xB1)
     @property
     def is_cc3220sf(self):
         return (self.chip_type[0] == 0x19)
+    @property
+    def is_cc3230sm(self):
+        return (self.chip_type[0] == 0x18 and self.chip_type[1] == 0xB1)
     @property
     def chip_name(self):
         if self.is_cc3220: return "CC3220"
         if self.is_cc3220s: return "CC3220S"
         if self.is_cc3220sf: return "CC3220SF"
+        if self.is_cc3230sm: return "CC3230SM"
         return "CC3210"
 
     @classmethod
@@ -632,18 +647,12 @@ class CC3200Connection(object):
         log.debug("get last status got %s", hexify(status))
         return CC3x00Status(ord(status))
 
-    def _do_break(self, timeout):
-        
-        time.sleep(1.0)
+    def _do_break(self, timeout, break_cycles):
+
+        time.sleep(0.8)
         self.port.dtr = 0 # TODO: add function reset_pin(0)
         log.info("break_on")
-        if platform.system() == 'Darwin': # For mac os
-            for i in range(3):
-                self.port.send_break()
-        elif platform.system() == 'Linux': # For mac os
-            for i in range(9):
-                self.port.send_break()
-        else:
+        for i in range(break_cycles):
             self.port.send_break()
         log.info("break_off")
 
@@ -656,12 +665,16 @@ class CC3200Connection(object):
             self.port.dtr = 1 # TODO: add function reset_pin(1)
             return False
 
-    def _try_breaking(self, tries=5, timeout=2):
+    def _try_breaking(self, tries=7, timeout=2):
+        if platform.system() == 'Darwin': # For mac os
+            break_cycles = 3
+        elif platform.system() == 'Linux':
+            break_cycles = 10
         for _ in range(tries):
-            if self._do_break(timeout):
+            if self._do_break(timeout, break_cycles):
                 break
-        else:
-            raise CC3200Error("Did not get ACK on break condition")
+            if platform.system() == 'Linux':
+                break_cycles = break_cycles + 1
 
     def _get_version(self):
         self._send_packet(OPCODE_GET_VERSION_INFO)
@@ -892,7 +905,7 @@ class CC3200Connection(object):
             return
 
         if vinfo.bootloader[1] < 1:
-            raise CC3200Error("Unsupported device")
+            log.warning("Unsupported bootloader")
 
         if vinfo.bootloader[1] == 3:
             # cesanta upload and exec rbtl3101_132.dll for this version
@@ -938,7 +951,11 @@ class CC3200Connection(object):
             if not self._read_ack():
                 raise CC3200Error("no ACK after Switch UART to APPS MCU command")
         elif platform.system() == 'Linux':
-            for i in range(10):
+            if self.vinfo.is_cc3230sm: # Graham Cracker workaround
+                break_cycles = 9
+            else:
+                break_cycles = 10
+            for i in range(break_cycles):
                 self.port.send_break()
             if not self._read_ack():
                 raise CC3200Error("no ACK after Switch UART to APPS MCU command")
