@@ -30,6 +30,7 @@ from collections import namedtuple
 import json
 import platform
 import serial
+import subprocess
 
 log = logging.getLogger()
 logging.basicConfig(stream=sys.stderr, level=logging.INFO,
@@ -99,7 +100,7 @@ Pincfg = namedtuple('Pincfg', ['invert', 'pin'])
 
 
 def pinarg(extra=None):
-    choices = ['dtr', 'rts', 'none']
+    choices = ['dtr', 'rts', 'gpio', 'none']
     if extra:
         choices.extend(extra)
 
@@ -129,6 +130,9 @@ parser.add_argument(
 parser.add_argument(
         "--reset", type=pinarg(['prompt']), default="none",
         help="dtr, rts, none or prompt, optinally prefixed by ~ to invert")
+parser.add_argument(
+        "--reset-pin", default=None,
+        help="wPi number of GPIO pin wich will be used to reset")
 parser.add_argument(
         "--sop2", type=pinarg(), default="none",
         help="dtr, rts or none, optinally prefixed by ~ to invert")
@@ -528,10 +532,11 @@ class CC3200Connection(object):
     TIMEOUT = 60
     DEFAULT_SLFS_SIZE = "1M"
 
-    def __init__(self, port, reset=None, sop2=None, erase_timeout=ERASE_TIMEOUT):
+    def __init__(self, port, reset=None, sop2=None, reset_pin=None, erase_timeout=ERASE_TIMEOUT):
         self.port = port
         port.timeout = self.TIMEOUT
         self._reset = reset
+        self._reset_pin = reset_pin
         self._sop2 = sop2
         self._erase_timeout = erase_timeout
 
@@ -573,16 +578,27 @@ class CC3200Connection(object):
             raw_input()
             return
         
-        in_reset = True ^ self._reset.invert
+        # in_reset = True ^ self._reset.invert
+        self._set_reset_pin(True)
+        time.sleep(.1)
+        self._set_reset_pin(False)
+        
+    def _set_reset_pin(self, state):
+        state = not state if self._reset.invert else state
         if self._reset.pin == 'dtr':
-            self.port.dtr = in_reset
-            time.sleep(.1)
-            self.port.dtr = not in_reset
+            log.info('Setting dtr pin: {}'.format(state))
+            self.port.dtr = int(state)
 
         if self._reset.pin == 'rts':
-            self.port.rts = in_reset
-            time.sleep(.1)
-            self.port.rts = not in_reset
+            log.info('Setting rst pin: {}'.format(state))
+            self.port.rts = int(state)
+
+        if self._reset.pin == 'gpio':
+            _pin = self._reset_pin
+            log.info('Setting GPIO {} pin: {}'.format(_pin, state))
+            subprocess.call(['gpio', 'mode', _pin, 'out'])
+            subprocess.call(['gpio', 'write', _pin, str(int(state))])
+
 
     def _read_ack(self, timeout=None):
         ack_bytes = []
@@ -650,7 +666,7 @@ class CC3200Connection(object):
     def _do_break(self, timeout, break_cycles):
 
         time.sleep(0.8)
-        self.port.dtr = 0 # TODO: add function reset_pin(0)
+        self._set_reset_pin(True)
         log.info("break_on")
         for i in range(break_cycles):
             self.port.send_break()
@@ -662,8 +678,20 @@ class CC3200Connection(object):
         if self._read_ack(timeout):
             return True
         else:
-            self.port.dtr = 1 # TODO: add function reset_pin(1)
+            self._set_reset_pin(False)
             return False
+        
+    def _do_break_rpi(self, timeout, break_cycles):
+        log.info("break_on")
+        self.port.break_condition = True
+        self._set_reset_pin(True)
+        time.sleep(0.1)
+        self._set_reset_pin(False)
+        ack = self._read_ack(timeout=5)
+        self.port.break_condition = False
+        log.info("break_off")
+        return ack
+
 
     def _try_breaking(self, tries=7, timeout=2):
         if platform.system() == 'Darwin': # For mac os
@@ -671,8 +699,12 @@ class CC3200Connection(object):
         elif platform.system() == 'Linux':
             break_cycles = 10
         for _ in range(tries):
-            if self._do_break(timeout, break_cycles):
-                break
+            if self._reset.pin == 'gpio':
+                if self._do_break_rpi(timeout, break_cycles):
+                    break
+            else:
+                if self._do_break(timeout, break_cycles):
+                    break
             if platform.system() == 'Linux':
                 break_cycles = break_cycles + 1
 
@@ -945,7 +977,16 @@ class CC3200Connection(object):
         command = OPCODE_SWITCH_2_APPS + struct.pack(">I", 26666667)
         self._send_packet(command)
         log.info("Resetting communications ...")
-        if platform.system() == 'Darwin': # mac os
+        if self._reset.pin == 'gpio':
+            for i in range(4):
+                self.port.break_condition = True
+                time.sleep(0.1)
+                if self._read_ack():
+                    self.port.break_condition = False
+                    break
+            else:
+                raise CC3200Error("no ACK after Switch UART to APPS MCU command")
+        elif platform.system() == 'Darwin': # mac os
             for i in range(3):
                 self.port.send_break()
             if not self._read_ack():
@@ -963,7 +1004,7 @@ class CC3200Connection(object):
             time.sleep(1)
             self.port.send_break(0.2)
             if not self._read_ack():
-                raise CC3200Error("no ACK after Switch UART to APPS MCU command")  
+                raise CC3200Error("no ACK after Switch UART to APPS MCU command")
         for i in range(8):
             self.vinfo_apps = self._get_version()
             if self.vinfo.bootloader[1] >= 4:
@@ -1222,6 +1263,7 @@ def main():
 
     sop2_method = args.sop2
     reset_method = args.reset
+    reset_pin = args.reset_pin
     if sop2_method.pin == reset_method.pin and reset_method.pin != 'none':
         log.error("sop2 and reset methods cannot be the same output pin")
         sys.exit(-3)
@@ -1240,7 +1282,7 @@ def main():
         log.warn("unable to open serial port %s: %s", port_name, e)
         sys.exit(-2)
 
-    cc = CC3200Connection(p, reset_method, sop2_method, erase_timeout=args.erase_timeout)
+    cc = CC3200Connection(p, reset_method, sop2_method, reset_pin, erase_timeout=args.erase_timeout)
     try:
         cc.connect()
         log.info("connected to target")
