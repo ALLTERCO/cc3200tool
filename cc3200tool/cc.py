@@ -134,6 +134,9 @@ parser.add_argument(
         "--reset-pin", default=None,
         help="wPi number of GPIO pin wich will be used to reset")
 parser.add_argument(
+        "--break-duration", default=10, type=int, choices=range(4,20),
+        help="Num of UART break cycles when switching cc32xx to boot mode (10 is recommended)")
+parser.add_argument(
         "--sop2", type=pinarg(), default="none",
         help="dtr, rts or none, optinally prefixed by ~ to invert")
 parser.add_argument(
@@ -532,10 +535,11 @@ class CC3200Connection(object):
     TIMEOUT = 60
     DEFAULT_SLFS_SIZE = "1M"
 
-    def __init__(self, port, reset=None, sop2=None, reset_pin=None, erase_timeout=ERASE_TIMEOUT):
+    def __init__(self, port, reset=None, break_cycles=10, sop2=None, reset_pin=None, erase_timeout=ERASE_TIMEOUT):
         self.port = port
         port.timeout = self.TIMEOUT
         self._reset = reset
+        self._break_cycles = break_cycles
         self._reset_pin = reset_pin
         self._sop2 = sop2
         self._erase_timeout = erase_timeout
@@ -992,11 +996,7 @@ class CC3200Connection(object):
             if not self._read_ack():
                 raise CC3200Error("no ACK after Switch UART to APPS MCU command")
         elif platform.system() == 'Linux':
-            if self.vinfo.is_cc3230sm: # Graham Cracker workaround
-                break_cycles = 9
-            else:
-                break_cycles = 10
-            for i in range(break_cycles):
+            for i in range(self._break_cycles):
                 self.port.send_break()
             if not self._read_ack():
                 raise CC3200Error("no ACK after Switch UART to APPS MCU command")
@@ -1263,6 +1263,7 @@ def main():
 
     sop2_method = args.sop2
     reset_method = args.reset
+    break_cycles = int(args.break_duration)
     reset_pin = args.reset_pin
     if sop2_method.pin == reset_method.pin and reset_method.pin != 'none':
         log.error("sop2 and reset methods cannot be the same output pin")
@@ -1282,7 +1283,7 @@ def main():
         log.warn("unable to open serial port %s: %s", port_name, e)
         sys.exit(-2)
 
-    cc = CC3200Connection(p, reset_method, sop2_method, reset_pin, erase_timeout=args.erase_timeout)
+    cc = CC3200Connection(p, reset_method, break_cycles, sop2_method, reset_pin, erase_timeout=args.erase_timeout)
     try:
         cc.connect()
         log.info("connected to target")

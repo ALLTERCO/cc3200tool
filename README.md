@@ -59,6 +59,9 @@ has to be peformed to switch the chip in bootloader mode. `cc3200tool` can
 optionally use the RTS and DTR lines of the serial port controller to
 automatically perform these actions via the `--sop2` and `--reset` options.
 
+If you received error "timed out while waiting for ack" after message "Resetting communications",
+then try to adjust `--break-duration` argument - make it more or less than the default (default is 10).
+
 See `cc3200tool -h` and `cc3200tool <subcommand> -h` for complete description
 of arguments. Some examples:
 
